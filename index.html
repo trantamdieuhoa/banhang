@@ -112,6 +112,13 @@ a.nut{text-decoration:none;color:inherit}
 #thong-bao div{background:var(--chu);color:#fff;padding:11px 14px;border-radius:10px;box-shadow:0 4px 14px rgba(0,0,0,.2);font-size:14px}
 #thong-bao div.loi{background:var(--do)}
 #thong-bao div.tot{background:var(--chinh)}
+/* Ảnh: ô nhỏ bấm vào xem to */
+.anh-ds{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.anh-nho{width:64px;height:64px;border-radius:8px;overflow:hidden;background:var(--vien);display:block;flex:none}
+.anh-nho img{width:100%;height:100%;object-fit:cover;display:block}
+.nut-anh{border:1px dashed var(--vien);background:none;border-radius:8px;width:64px;height:64px;font-size:20px;color:var(--phu)}
+#cho{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center}
+#cho div{background:var(--the);padding:18px 22px;border-radius:14px;font-weight:600}
 
 /* Đăng nhập */
 .dang-nhap{max-width:380px;margin:12vh auto 0;padding:0 16px}
@@ -345,6 +352,64 @@ const rpc = (ham, thamSo) => api('rpc/' + ham, { method: 'POST', body: thamSo ||
 const ghi = (bang, du_lieu) => api(bang, { method: 'POST', body: du_lieu, headers: { Prefer: 'return=representation' } });
 const sua = (bang, loc, du_lieu) => api(bang + '?' + loc, { method: 'PATCH', body: du_lieu, headers: { Prefer: 'return=representation' } });
 
+// ── 3b. ẢNH (Supabase Storage, kho "anh" riêng tư) ───────────────────
+// Tải lên:  POST /storage/v1/object/anh/<đường dẫn>       (ảnh đã nén JPEG)
+// Xem:      POST /storage/v1/object/sign/anh {paths}       → link có chữ ký, hết hạn sau 1 giờ
+// Trong CSDL chỉ lưu đường dẫn, VD "toa/NCC001/2026-10/k3j9x.jpg".
+async function tokenConHan() { if (!phien) throw new Error('Chưa đăng nhập'); if (phien.expires_at - 60 < Date.now() / 1000) await lamMoiPhien(); }
+// Nén ảnh: cạnh dài tối đa 2000px, JPEG 72% → ảnh 12MP (~3–5MB) còn ~300–500KB, chữ trên toa vẫn đọc rõ
+async function nenAnh(f) {
+  const url = URL.createObjectURL(f);
+  try {
+    const img = await new Promise((ok, loi) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => loi(new Error('Không đọc được ảnh ' + (f.name || ''))); i.src = url; });
+    const k = Math.min(1, 2000 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+    const b = await new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.72));
+    if (!b) throw new Error('Không nén được ảnh');
+    return b;
+  } finally { URL.revokeObjectURL(url); }
+}
+// Tải 1 ảnh lên thư mục (VD "toa/NCC001") → trả về đường dẫn để lưu vào CSDL
+async function taiAnhLen(f, thuMuc) {
+  const blob = await nenAnh(f); await tokenConHan();
+  const duong = thuMuc + '/' + ngayVN(0).slice(0, 7) + '/' + maPhieu() + '.jpg';
+  let r;
+  try {
+    r = await fetch(CFG.url + '/storage/v1/object/anh/' + duong, { method: 'POST', body: blob,
+      headers: { apikey: CFG.key, Authorization: 'Bearer ' + phien.access_token, 'Content-Type': 'image/jpeg', 'x-upsert': 'false' } });
+  } catch (e) { throw new Error('Mất mạng khi tải ảnh lên – thử lại'); }
+  if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error('Không tải được ảnh: ' + dichLoi(j.message || j.error || r.status)
+    + (/Bucket not found/i.test(j.message || j.error || '') ? ' (chưa chạy file 05_anh_toa.sql)' : '')); }
+  return duong;
+}
+async function taiNhieuAnh(ds, thuMuc) { const kq = []; for (const f of ds || []) kq.push(await taiAnhLen(f, thuMuc)); return kq; }
+// Màn che "Đang tải ảnh…" (dùng khi hộp hỏi đã đóng mà việc vẫn đang chạy)
+async function cho(chu, viec) {
+  const d = document.createElement('div'); d.id = 'cho'; d.innerHTML = '<div>' + esc(chu) + '</div>'; document.body.appendChild(d);
+  try { return await viec(); } finally { d.remove(); }
+}
+// Ô ảnh nhỏ (link + ảnh được gắn sau bởi napAnh)
+const veAnh = ds => (ds && ds.length) ? `<div class="anh-ds">${ds.map(p => `<a class="anh-nho" data-anh="${esc(p)}" target="_blank" rel="noopener"><img alt=""></a>`).join('')}</div>` : '';
+const LINK_ANH = {};   // đường dẫn → {url, het} (giữ 50 phút khỏi xin lại)
+async function napAnh() {
+  const o = [...document.querySelectorAll('a[data-anh]:not([href])')]; if (!o.length) return;
+  const can = [...new Set(o.map(a => a.dataset.anh))].filter(p => !(LINK_ANH[p] && LINK_ANH[p].het > Date.now()));
+  if (can.length) {
+    try {
+      await tokenConHan();
+      const r = await fetch(CFG.url + '/storage/v1/object/sign/anh', { method: 'POST',
+        headers: { apikey: CFG.key, Authorization: 'Bearer ' + phien.access_token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expiresIn: 3600, paths: can }) });
+      const j = await r.json();
+      (Array.isArray(j) ? j : []).forEach(x => { if (x.signedURL) LINK_ANH[x.path] = { url: CFG.url + '/storage/v1' + x.signedURL, het: Date.now() + 50 * 60e3 }; });
+    } catch (e) { return; }
+  }
+  document.querySelectorAll('a[data-anh]:not([href])').forEach(a => { const l = LINK_ANH[a.dataset.anh];
+    if (l) { a.href = l.url; a.querySelector('img').src = l.url; } });
+}
+
+
 // ── 4. DỮ LIỆU ───────────────────────────────────────────────────────
 // Mỗi đơn đang lên có 1 "mã phiếu" riêng. Bấm Lưu 2 lần (mạng chập chờn) → máy chủ thấy trùng mã, không tạo đơn thứ 2.
 const maPhieu = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -464,6 +529,7 @@ function veBang() {
   $('#bang').innerHTML = `<div class="dau-bang"><b>${esc(b.tieuDe)}</b><button data-a="dongBang">✕</button></div>
     <div class="than-bang" data-k="${esc(b.tieuDe)}">${b.ve()}</div>`;
   $('#bang .than-bang').scrollTop = y;
+  napAnh();
 }
 function dongBang() { const b = S.bangs.pop(); veBang(); if (b && b.khiDong) b.khiDong(); }
 HD.dongBang = dongBang;
@@ -481,6 +547,11 @@ function hoi(tieuDe, o, chuNut, ghiChu) {
       ${o.map((f, i) => {
         const id = 'h_' + f.k; const gt = f.gt == null ? '' : f.gt;
         if (f.kieu === 'hop') return `<label class="dong" style="margin-top:12px"><input type="checkbox" id="${id}" ${gt ? 'checked' : ''} style="width:20px;height:20px"> ${esc(f.nhan)}</label>`;
+        // Ảnh: iPhone hỏi "Chụp ảnh / Thư viện ảnh / Chọn tệp". Chọn được nhiều ảnh.
+        if (f.kieu === 'anh') return `<label class="nhan">${esc(f.nhan)}</label>
+          <label class="nut" style="display:block;text-align:center">📷 Chụp / chọn ảnh<input type="file" id="${id}" accept="image/*" multiple data-d="chonAnh" style="display:none"></label>
+          <div class="anh-ds" id="${id}_xem"></div>`;
+        if (f.kieu === 'ngay') return `<label class="nhan" for="${id}">${esc(f.nhan)}</label><input class="o" type="date" id="${id}" value="${esc(gt)}">`;
         let o2;
         if (f.kieu === 'chon') o2 = `<select class="o" id="${id}">${f.ds.map(x => { const [v, t] = Array.isArray(x) ? x : [x, x];
           return `<option value="${esc(v)}" ${String(v) === String(gt) ? 'selected' : ''}>${esc(t)}</option>`; }).join('')}</select>`;
@@ -497,12 +568,12 @@ function hoi(tieuDe, o, chuNut, ghiChu) {
         <button class="nut chinh" type="submit">${esc(chuNut || 'Đồng ý')}</button></div></form>`,
       () => ket(null));
     const form = $('#hop-hoi');
-    const dau = form.querySelector('input:not([type=checkbox]),select'); if (dau) setTimeout(() => dau.focus(), 50);
+    const dau = form.querySelector('input:not([type=checkbox]):not([type=file]):not([type=date]),select'); if (dau) setTimeout(() => dau.focus(), 50);
     form.onsubmit = ev => {
       ev.preventDefault();
       const v = {};
       o.forEach(f => { const el = $('#h_' + f.k);
-        v[f.k] = f.kieu === 'hop' ? el.checked : f.kieu === 'tien' ? docTien(el.value) : f.kieu === 'so' ? docSo(el.value) : el.value.trim(); });
+        v[f.k] = f.kieu === 'anh' ? Array.from(el.files || []) : f.kieu === 'ngay' ? el.value : f.kieu === 'hop' ? el.checked : f.kieu === 'tien' ? docTien(el.value) : f.kieu === 'so' ? docSo(el.value) : el.value.trim(); });
       ket(v); S.bangs.pop(); veBang();
     };
   });
@@ -510,6 +581,29 @@ function hoi(tieuDe, o, chuNut, ghiChu) {
 GO.xemTien = el => { const g = el.nextElementSibling;   // dòng "= 365.000đ" ngay dưới ô nhập
   if (g && g.classList.contains('goi-y')) g.textContent = el.value ? '= ' + tien(docTien(el.value)) : ''; };
 async function xacNhan(cauHoi, chuNut) { const v = await hoi('Xác nhận', [], chuNut || 'Đồng ý', esc(cauHoi)); return !!v; }
+
+// ── 5b. ẢNH: chọn ảnh, gắn thêm ảnh ─────────────────────────────────
+// Xem trước ảnh vừa chọn trong hộp hỏi
+DOI.chonAnh = el => {
+  const o = $('#' + el.id + '_xem'); if (!o) return;
+  o.innerHTML = Array.from(el.files).map(f => `<span class="anh-nho"><img src="${URL.createObjectURL(f)}" alt=""></span>`).join('');
+};
+// Nút 📎: gắn thêm ảnh vào khoản đã ghi (data-loai: thanh_toan | tra_ncc | toa; data-tm: thư mục)
+HD.themAnh = el => {
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true;
+  inp.onchange = async () => {
+    if (!inp.files.length) return;
+    try {
+      await cho('Đang tải ' + inp.files.length + ' ảnh lên…', async () => {
+        for (const f of inp.files) { const p = await taiAnhLen(f, el.dataset.tm); await rpc('them_anh', { p_loai: el.dataset.loai, p_id: el.dataset.id, p_anh: p }); }
+      });
+      thongBao('Đã thêm ảnh', 'tot');
+      const b = S.bangs[S.bangs.length - 1];
+      if (b && b.nx) await taiLaiNcc(); else if (b && b.x) await taiLaiDon();
+    } catch (e) { thongBao(e.message, 'loi'); }
+  };
+  inp.click();
+};
 
 // ── 6. TAB BÁN HÀNG ──────────────────────────────────────────────────
 function tenKhachGio(g) {
@@ -993,7 +1087,9 @@ function veChiTietDon(x) {
         <div class="tong-dong"><span>Chiết khấu</span><span class="tien">−${tien(d.chiet_khau)}</span></div>` : ''}
       <div class="tong-dong lon"><span>Tổng cộng</span><span class="tien">${tien(d.tong_cong)}</span></div>
       ${tt.map(p => `<div class="tong-dong mo"><span>✓ ${esc(p.hinh_thuc)} ${ngayGio(p.ngay)}${p.nguoi_thu ? ' · ' + esc(p.nguoi_thu) : ''}
-          ${laChu() ? `<button class="gia-sua" style="color:var(--do)" data-a="huyTT" data-id="${p.id}">huỷ</button>` : ''}</span><span class="tien">${tien(p.so_tien)}</span></div>`).join('')}
+          ${laChu() ? `<button class="gia-sua" style="color:var(--do)" data-a="huyTT" data-id="${p.id}">huỷ</button>` : ''}</span><span class="tien">${tien(p.so_tien)}</span></div>
+        ${p.hinh_thuc === 'Chuyển khoản' || (p.anh && p.anh.length) ? `<div class="anh-ds" style="margin:0 0 6px">${veAnh(p.anh).replace(/^<div class="anh-ds">|<\/div>$/g, '')}
+          <button class="nut-anh" style="width:auto;height:auto;padding:6px 10px;font-size:13px" data-a="themAnh" data-loai="thanh_toan" data-id="${p.id}" data-tm="ck-khach/${d.khach_hang_id}">📎 ${p.anh && p.anh.length ? 'thêm' : 'ảnh CK'}</button></div>` : ''}`).join('')}
       ${!huy && no > 0 ? `<div class="tong-dong" style="font-weight:700"><span>Còn phải thu</span><span class="no tien">${tien(no)}</span></div>` : ''}
       ${!huy && x.noCu > 0 ? `<div class="tong-dong mo"><span>Nợ các đơn trước</span><span class="tien">${tien(x.noCu)}</span></div>
         <div class="tong-dong" style="font-weight:700"><span>Khách đang nợ tổng</span><span class="no tien">${tien(x.noCu + no)}</span></div>${nutNoCu()}` : ''}</div>
@@ -1024,9 +1120,11 @@ HD.thuDon = async el => {
 HD.thuMotPhan = async () => {
   const { d } = donDangMo();
   const v = await hoi('Thu một phần – ' + d.id, [{ k: 'tien', nhan: 'Số tiền khách trả', kieu: 'tien' },
-    { k: 'ht', nhan: 'Hình thức', kieu: 'chon', ds: ['Tiền mặt', 'Chuyển khoản'], gt: 'Tiền mặt' }], 'Ghi nhận', 'Còn phải thu ' + tien(d.con_no));
+    { k: 'ht', nhan: 'Hình thức', kieu: 'chon', ds: ['Tiền mặt', 'Chuyển khoản'], gt: 'Tiền mặt' },
+    { k: 'anh', nhan: 'Ảnh chuyển khoản (không bắt buộc)', kieu: 'anh' }], 'Ghi nhận', 'Còn phải thu ' + tien(d.con_no));
   if (!v || v.tien <= 0) return;
-  const kq = await rpc('thu_tien', { p: { don_hang_id: d.id, so_tien: v.tien, hinh_thuc: v.ht } });
+  const kq = await cho('Đang ghi…', async () => rpc('thu_tien', { p: { don_hang_id: d.id, so_tien: v.tien, hinh_thuc: v.ht,
+    anh: await taiNhieuAnh(v.anh, 'ck-khach/' + d.khach_hang_id) } }));
   thongBao('Đã ghi nhận' + (kq.tien_thua > 0 ? '. Tiền thừa ' + tien(kq.tien_thua) + ' (chưa trừ vào đơn khác)' : ''), 'tot');
   await taiLaiDon();
 };
@@ -1208,10 +1306,12 @@ HD.thuNo = async () => {
   const { k, tongNo } = khachDangMo();
   const v = await hoi('Thu nợ – ' + k.ten, [{ k: 'tien', nhan: 'Số tiền khách trả', kieu: 'tien', gt: tongNo },
     { k: 'ht', nhan: 'Hình thức', kieu: 'chon', ds: ['Chuyển khoản', 'Tiền mặt'], gt: 'Chuyển khoản' },
+    { k: 'anh', nhan: 'Ảnh chuyển khoản (không bắt buộc)', kieu: 'anh' },
     { k: 'gc', nhan: 'Ghi chú (mã giao dịch…)', goiY: 'không bắt buộc' }], 'Ghi nhận',
     'Tổng nợ ' + tien(tongNo) + '. Tiền sẽ trừ vào các đơn CŨ NHẤT trước.');
   if (!v || v.tien <= 0) return;
-  const kq = await rpc('thu_tien', { p: { khach_hang_id: k.id, so_tien: v.tien, hinh_thuc: v.ht, ghi_chu: v.gc } });
+  const kq = await cho('Đang ghi…', async () => rpc('thu_tien', { p: { khach_hang_id: k.id, so_tien: v.tien, hinh_thuc: v.ht, ghi_chu: v.gc,
+    anh: await taiNhieuAnh(v.anh, 'ck-khach/' + k.id) } }));
   const ds = kq.da_tru.map(t => t.don_hang_id + ': ' + tien(t.so_tien)).join('\n');
   await hoi('Đã ghi nhận ' + tien(v.tien - kq.tien_thua), [], 'Xong',
     esc(ds).replace(/\n/g, '<br>') + (kq.tien_thua > 0 ? `<br><b class="no">Tiền thừa ${tien(kq.tien_thua)} – trả lại khách hoặc ghi chú.</b>` : ''));
@@ -1310,7 +1410,7 @@ function veThem() {
       <div class="muc dong" data-a="doiMatKhau"><span class="gian">🔑 <b>Đổi mật khẩu</b></span>›</div>
       <div class="muc dong" data-a="dangXuat"><span class="gian no">⎋ Đăng xuất</span></div>
     </div>
-    <p class="mo" style="text-align:center">Bản 1.7</p>`;
+    <p class="mo" style="text-align:center">Bản 1.9</p>`;
 }
 // ── Sao lưu: tải file Excel (dùng thư viện SheetJS, chỉ tải về khi bấm) ──
 HD.saoLuu = () => moBang('Sao lưu dữ liệu', () => `
@@ -1660,8 +1760,9 @@ HD.kiemKho = async () => {
 // Bảng ncc_hang: NCC nào bỏ mặt hàng nào (1 món có thể nhiều NCC). Nhân viên xem được, chỉ chủ sửa được.
 const nutGoi = sdt => { sdt = chiSo(sdt); return sdt ? `<a class="nut nho" href="tel:${sdt}">📞</a><a class="nut nho" href="${ZALO}${sdt}" target="_blank" rel="noopener">Zalo</a>` : ''; };
 async function taiNcc() {
-  S.ncc = await api('nha_cung_cap?select=*,ncc_hang(hang_hoa_id)&order=dang_hop_tac.desc,ten');
-  S.ncc.forEach(n => { n.soHang = n.ncc_hang.length; n._t = boDau([n.ten, n.dia_chi, n.nguoi_lien_he].join(' ')) + ' ' + chiSo(n.sdt) + ' ' + chiSo(n.sdt_nv); });
+  const [ds, no] = await Promise.all([api('nha_cung_cap?select=*,ncc_hang(hang_hoa_id)&order=dang_hop_tac.desc,ten'), api('v_cong_no_ncc?select=id,con_no')]);
+  S.ncc = ds; const noTheo = {}; no.forEach(x => noTheo[x.id] = Number(x.con_no));
+  S.ncc.forEach(n => { n.soHang = n.ncc_hang.length; n.conNo = noTheo[n.id] || 0; n._t = boDau([n.ten, n.dia_chi, n.nguoi_lien_he].join(' ')) + ' ' + chiSo(n.sdt) + ' ' + chiSo(n.sdt_nv); });
 }
 HD.nccDs = async el => {
   await chay(el, '…', taiNcc); S.timNcc = '';
@@ -1675,14 +1776,21 @@ function veDsNcc() {
   const ds = S.ncc.filter(n => !q || n._t.includes(q) || (qs.length >= 3 && n._t.includes(qs)) || n.ncc_hang.some(l => hangKhop.has(l.hang_hoa_id)));
   return `<div class="the ds">${ds.map(n => `<div class="muc dong" data-a="nccMo" data-id="${n.id}"><div class="gian"><b>${esc(n.ten)}</b>
       ${n.dang_hop_tac ? '' : '<span class="the-nhan">ngừng</span>'}<br>
-      <span class="mo">${n.nguoi_lien_he ? '👤 ' + esc(n.nguoi_lien_he) + ' · ' : ''}${esc(n.sdt_nv || n.sdt || 'chưa có SĐT')} · ${n.soHang} mặt hàng</span></div>›</div>`).join('')
+      <span class="mo">${n.nguoi_lien_he ? '👤 ' + esc(n.nguoi_lien_he) + ' · ' : ''}${esc(n.sdt_nv || n.sdt || 'chưa có SĐT')} · ${n.soHang} mặt hàng</span></div>
+      ${n.conNo > 0 ? `<b class="no tien">${tien(n.conNo)}</b>` : ''}›</div>`).join('')
     || `<div class="trong">${S.ncc.length ? 'Không thấy' : 'Chưa có nhà cung cấp nào' + (laChu() ? ' – bấm ＋ để thêm' : '')}</div>`}</div>`;
 }
 GO.timNcc = el => { S.timNcc = el.value; $('#ds-ncc').innerHTML = veDsNcc(); };
 async function layNcc(id) {
-  const r = await api('nha_cung_cap?select=*,ncc_hang(tao_luc,hang_hoa(id,ten,don_vi,ton_kho,ton_toi_thieu,dang_ban))&id=eq.' + id);
+  const [r, toa, tra, no] = await Promise.all([
+    api('nha_cung_cap?select=*,ncc_hang(tao_luc,hang_hoa(id,ten,don_vi,ton_kho,ton_toi_thieu,dang_ban))&id=eq.' + id),
+    api('phieu_nhap?select=id,ngay,tong_tien,so_toa,ghi_chu,anh,nguoi_nhap&ncc_id=eq.' + id + '&trang_thai=eq.hoan_tat&order=ngay.desc&limit=40'),
+    api('tra_ncc?select=*&ncc_id=eq.' + id + '&order=ngay.desc&limit=40'),
+    api('v_cong_no_ncc?id=eq.' + id),
+  ]);
   if (!r[0]) throw new Error('Không tìm thấy nhà cung cấp ' + id);
-  const n = r[0]; n.hang = n.ncc_hang.map(l => l.hang_hoa).filter(Boolean).sort((a, b) => a.ten.localeCompare(b.ten, 'vi'));
+  const n = r[0];
+  n.toa = toa; n.tra = tra; n.no = no[0] || { tong_nhap: 0, da_tra: 0, con_no: 0 }; n.hang = n.ncc_hang.map(l => l.hang_hoa).filter(Boolean).sort((a, b) => a.ten.localeCompare(b.ten, 'vi'));
   return n;
 }
 HD.nccMo = async el => { const n = await layNcc(el.dataset.id); moBang(n.ten, () => veChiTietNcc(n)); S.bangs[S.bangs.length - 1].nx = n; };
@@ -1704,6 +1812,7 @@ function veChiTietNcc(n) {
       ${n.ghi_chu ? `<p class="mo" style="margin:4px 0 0">📝 ${esc(n.ghi_chu)}</p>` : ''}
       <div class="hang-nut">${n.hang.length ? '<button class="nut" data-a="nccCopyDat">📋 Copy tin đặt hàng</button>' : ''}
         ${chu ? '<button class="nut" data-a="nccSua">✎ Sửa</button>' : ''}</div></div>
+    ${veToaNcc(n)}
     <h3>Mặt hàng NCC này bỏ (${n.hang.length})${het.length ? ` · <span class="no">${het.length} sắp hết</span>` : ''}</h3>
     ${chu ? '<button class="nut chinh" style="width:100%;margin-bottom:8px" data-a="nccThemHang">＋ Thêm mặt hàng</button>' : ''}
     <div class="the ds">${n.hang.map(h => `<div class="muc dong"><div class="gian" data-a="xemHang" data-id="${h.id}"><b>${esc(h.ten)}</b>
@@ -1712,6 +1821,83 @@ function veChiTietNcc(n) {
         ${chu ? `<button class="nut-sua" data-a="nccBoHang" data-id="${h.id}" title="Bỏ khỏi NCC này">✕</button>` : ''}</div>`).join('')
       || '<div class="trong">Chưa gán mặt hàng nào</div>'}</div>`;
 }
+// Toa hàng & công nợ NCC: tổng toa – đã trả = còn nợ; dòng thời gian toa (🧾) và lần trả (💸) mới nhất trước
+function veToaNcc(n) {
+  const chu = laChu(), no = n.no;
+  const dong = [...n.toa.map(t => ({ loai: 'toa', ngay: t.ngay, x: t })), ...n.tra.map(t => ({ loai: 'tra', ngay: t.ngay, x: t }))]
+    .sort((a, b) => new Date(b.ngay) - new Date(a.ngay));
+  return `<h3>Toa hàng & tiền nợ</h3>
+    <div class="the">
+      <div class="tong-dong"><span>Tổng tiền toa</span><span class="tien">${tien(no.tong_nhap)}</span></div>
+      <div class="tong-dong"><span>Đã trả</span><span class="tien">${tien(no.da_tra)}</span></div>
+      <div class="tong-dong lon"><span>Còn nợ NCC</span><span class="tien ${Number(no.con_no) > 0 ? 'no' : ''}">${tien(no.con_no)}</span></div>
+      <div class="hang-nut"><button class="nut chinh" data-a="toaThem">📷 Thêm toa</button>
+        <button class="nut" data-a="nccTra">💸 Trả tiền NCC</button></div></div>
+    ${dong.length ? `<div class="the ds">${dong.map(d => d.loai === 'toa' ? `
+      <div class="muc"><div class="dong"><span class="gian">🧾 <b>Toa${d.x.so_toa ? ' số ' + esc(d.x.so_toa) : ''}</b> · ${ngayNgan(d.x.ngay)}<br>
+          <span class="mo">${esc(d.x.nguoi_nhap || '')}${d.x.ghi_chu ? ' · ' + esc(d.x.ghi_chu) : ''}</span></span>
+        <b class="tien">${tien(d.x.tong_tien)}</b></div>
+        <div class="anh-ds">${veAnh(d.x.anh).replace(/^<div class="anh-ds">|<\/div>$/g, '')}
+          <button class="nut-anh" data-a="themAnh" data-loai="toa" data-id="${d.x.id}" data-tm="toa/${n.id}" title="Thêm ảnh">📎</button>
+          ${chu ? `<button class="nut-sua" style="color:var(--do);margin-left:auto" data-a="toaHuy" data-id="${d.x.id}">huỷ toa</button>` : ''}</div></div>` : `
+      <div class="muc"><div class="dong"><span class="gian">💸 <b>Trả ${esc(d.x.hinh_thuc.toLowerCase())}</b> · ${ngayNgan(d.x.ngay)}<br>
+          <span class="mo">${esc(d.x.nguoi_tra || '')}${d.x.phieu_nhap_id ? ' · trả luôn lúc nhận toa' : ''}${d.x.ghi_chu ? ' · ' + esc(d.x.ghi_chu) : ''}</span></span>
+        <b class="tien" style="color:var(--chinh)">−${tien(d.x.so_tien)}</b></div>
+        <div class="anh-ds">${veAnh(d.x.anh).replace(/^<div class="anh-ds">|<\/div>$/g, '')}
+          <button class="nut-anh" data-a="themAnh" data-loai="tra_ncc" data-id="${d.x.id}" data-tm="ck-ncc/${n.id}" title="Thêm ảnh">📎</button>
+          ${chu ? `<button class="nut-sua" style="color:var(--do);margin-left:auto" data-a="nccTraHuy" data-id="${d.x.id}">huỷ</button>` : ''}</div></div>`).join('')}</div>`
+      : '<p class="mo">Chưa có toa nào. Nhận hàng xong bấm 📷 Thêm toa, chụp toa và gõ tổng tiền.</p>'}`;
+}
+HD.toaThem = async () => {
+  const n = nccDangMo();
+  const v = await hoi('Thêm toa – ' + n.ten, [
+    { k: 'anh', nhan: 'Ảnh toa (chụp rõ phần tổng tiền)', kieu: 'anh' },
+    { k: 'tien', nhan: 'Tổng tiền toa', kieu: 'tien' },
+    { k: 'ngay', nhan: 'Ngày toa', kieu: 'ngay', gt: ngayVN(0) },
+    { k: 'so_toa', nhan: 'Số toa (không bắt buộc)' },
+    { k: 'tra', nhan: 'Thanh toán', kieu: 'chon', ds: ['Ghi nợ NCC', 'Trả đủ – tiền mặt', 'Trả đủ – chuyển khoản'], gt: 'Ghi nợ NCC' },
+    { k: 'anh_ck', nhan: 'Ảnh chuyển khoản (nếu trả CK)', kieu: 'anh' },
+    { k: 'gc', nhan: 'Ghi chú', goiY: 'VD: thiếu 2 thùng, giao bù sau' },
+  ], 'Lưu toa');
+  if (!v) return;
+  if (v.tien <= 0) return thongBao('Chưa nhập tổng tiền toa', 'loi');
+  // Gõ "3250" là 3.250đ (từ 1000 trở lên giữ nguyên) – toa vài nghìn đồng gần như chắc là gõ thiếu "k"
+  if (v.tien < 10000 && !await xacNhan('Tổng tiền toa chỉ ' + tien(v.tien) + '? Muốn 3.250.000đ thì gõ 3250k hoặc 3,25tr.', 'Đúng ' + tien(v.tien))) return;
+  if (!v.anh.length && !await xacNhan('Chưa chụp ảnh toa. Vẫn lưu?', 'Vẫn lưu')) return;
+  const ck = v.tra === 'Trả đủ – chuyển khoản';
+  await cho('Đang lưu toa' + (v.anh.length + (ck ? v.anh_ck.length : 0) ? ' và tải ảnh…' : '…'), async () => {
+    const anh = await taiNhieuAnh(v.anh, 'toa/' + n.id);
+    const anhCk = ck ? await taiNhieuAnh(v.anh_ck, 'ck-ncc/' + n.id) : [];
+    await rpc('tao_toa_ncc', { p: { ncc_id: n.id, tong_tien: v.tien, ngay: v.ngay, so_toa: v.so_toa, ghi_chu: v.gc, anh,
+      tra: v.tra === 'Ghi nợ NCC' ? null : { so_tien: v.tien, hinh_thuc: ck ? 'Chuyển khoản' : 'Tiền mặt', anh: anhCk } } });
+  });
+  thongBao('Đã lưu toa ' + tien(v.tien) + (v.tra === 'Ghi nợ NCC' ? ' – ghi nợ NCC' : ' – đã trả'), 'tot'); await taiLaiNcc();
+};
+HD.nccTra = async () => {
+  const n = nccDangMo(), no = Number(n.no.con_no);
+  const v = await hoi('Trả tiền – ' + n.ten, [
+    { k: 'tien', nhan: 'Số tiền trả', kieu: 'tien', gt: no > 0 ? no : '' },
+    { k: 'ht', nhan: 'Hình thức', kieu: 'chon', ds: ['Chuyển khoản', 'Tiền mặt'], gt: 'Chuyển khoản' },
+    { k: 'anh', nhan: 'Ảnh chuyển khoản / biên nhận', kieu: 'anh' },
+    { k: 'gc', nhan: 'Ghi chú', goiY: 'VD: trả toa ngày 20/10' },
+  ], 'Ghi nhận', no > 0 ? 'Đang nợ ' + tien(no) : '');
+  if (!v || v.tien <= 0) return;
+  if (v.tien < 10000 && !await xacNhan('Trả chỉ ' + tien(v.tien) + '? Muốn 1.000.000đ thì gõ 1000k hoặc 1tr.', 'Đúng ' + tien(v.tien))) return;
+  await cho('Đang lưu…', async () => {
+    const anh = await taiNhieuAnh(v.anh, 'ck-ncc/' + n.id);
+    await rpc('tra_no_ncc', { p: { ncc_id: n.id, so_tien: v.tien, hinh_thuc: v.ht, ghi_chu: v.gc, anh } });
+  });
+  thongBao('Đã ghi trả ' + tien(v.tien), 'tot'); await taiLaiNcc();
+};
+HD.toaHuy = async el => {
+  if (!await xacNhan('Huỷ toa ' + el.dataset.id + '? Khoản trả kèm toa (nếu có) cũng bị xoá, nợ NCC tính lại.', 'Huỷ toa')) return;
+  await rpc('huy_phieu_nhap', { p_id: el.dataset.id }); thongBao('Đã huỷ toa', 'tot'); await taiLaiNcc();
+};
+HD.nccTraHuy = async el => {
+  if (!await xacNhan('Huỷ khoản trả này? (dùng khi ghi nhầm)', 'Huỷ')) return;
+  await rpc('huy_tra_ncc', { p_id: Number(el.dataset.id) }); thongBao('Đã huỷ', 'tot'); await taiLaiNcc();
+};
+
 // Thêm / sửa nhà cung cấp (chỉ chủ)
 async function formNcc(n) {
   n = n || { dang_hop_tac: true };
