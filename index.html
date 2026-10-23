@@ -112,6 +112,10 @@ a.nut{text-decoration:none;color:inherit}
 #thong-bao div{background:var(--chu);color:#fff;padding:11px 14px;border-radius:10px;box-shadow:0 4px 14px rgba(0,0,0,.2);font-size:14px}
 #thong-bao div.loi{background:var(--do)}
 #thong-bao div.tot{background:var(--chinh)}
+#thanh-chon{position:fixed;left:8px;right:8px;bottom:calc(64px + env(safe-area-inset-bottom));z-index:5;background:var(--chu);color:#fff;border-radius:14px;padding:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);max-width:620px;margin:0 auto}
+#thanh-chon .hang-nut{margin-top:8px}
+#thanh-chon .nut{padding:9px 10px;font-size:14px}
+.o-chon{font-size:22px;line-height:1;margin-right:10px}
 /* Ảnh: ô nhỏ bấm vào xem to */
 .anh-ds{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 .anh-nho{width:64px;height:64px;border-radius:8px;overflow:hidden;background:var(--vien);display:block;flex:none}
@@ -511,7 +515,7 @@ function veKhung() {
     <div id="man-che" class="an"><div id="bang"></div></div>`;
   veTab();
 }
-HD.doiTab = el => { S.tab = el.dataset.t; document.querySelectorAll('#dieu-huong button').forEach(b => b.classList.toggle('chon', b === el)); veTab(); };
+HD.doiTab = el => { if (S.hCheDo && el.dataset.t !== 'hang') { S.hCheDo = false; const o = $('#thanh-chon'); if (o) o.remove(); } S.tab = el.dataset.t; document.querySelectorAll('#dieu-huong button').forEach(b => b.classList.toggle('chon', b === el)); veTab(); };
 function veTab() {
   window.scrollTo(0, 0);
   ({ ban: veBan, don: veDon, hang: veHang, khach: veKhach, them: veThem })[S.tab]();
@@ -659,7 +663,10 @@ function veMotHang(h) {
 }
 function veKetQua() {
   const o = $('#ket-qua'); if (!o) return;
-  if (!S.hang.length) { o.innerHTML = '<div class="trong">Đang tải danh mục hàng…</div>'; return; }
+  // Chưa tải lần nào → đang tải. Đã tải mà 0 món (cửa hàng mới / vừa dọn dữ liệu) → mời thêm món đầu tiên
+  if (!S.hangLuc) { o.innerHTML = '<div class="trong">Đang tải danh mục hàng…</div>'; return; }
+  if (!S.hang.length && !S.tim.trim()) { o.innerHTML = `<div class="trong">Chưa có mặt hàng nào.${laChu() ? '<br>Gõ tên hàng vào ô tìm rồi bấm "＋ Thêm mặt hàng mới", hoặc:' : '<br>Nhờ chủ thêm hàng.'}</div>
+    ${laChu() ? '<button class="nut chinh" style="width:100%" data-a="hangMoi">＋ Thêm mặt hàng đầu tiên</button>' : ''}`; return; }
   if (!S.tim.trim()) {
     // Chưa gõ gì: hiện các món đang có trong giỏ + món bán gần đây
     const gan = (doc('bh_gan') || []).map(timHang).filter(Boolean);
@@ -984,7 +991,7 @@ function goiAI(goi, ham) {
 }
 HD.aiDoc = async el => {
   const tin = (S.ai.tin || '').trim(); if (!tin) return thongBao('Chưa dán tin nhắn', 'loi');
-  if (!S.hang.length) return thongBao('Chưa tải xong danh mục hàng', 'loi');
+  if (!S.hang.length) return thongBao(S.hangLuc ? 'Chưa có mặt hàng nào – thêm hàng trước' : 'Chưa tải xong danh mục hàng', 'loi');
   if (phien.expires_at - 120 < Date.now() / 1000) await lamMoiPhien();   // Apps Script cần token còn hạn để kiểm tra
   // Danh mục gửi cho AI: mã|tên|các quy cách có giá
   const ds = S.hang.map(h => h.id + '|' + h.ten + '|' + (h.gia.map(g => g.qc).join(',') || h.dv)).join('\n');
@@ -1476,7 +1483,7 @@ function veThem() {
       <div class="muc dong" data-a="doiMatKhau"><span class="gian">🔑 <b>Đổi mật khẩu</b></span>›</div>
       <div class="muc dong" data-a="dangXuat"><span class="gian no">⎋ Đăng xuất</span></div>
     </div>
-    <p class="mo" style="text-align:center">Bản 2.0</p>`;
+    <p class="mo" style="text-align:center">Bản 2.1</p>`;
 }
 // ── CHỐT SỔ CUỐI NGÀY (chủ) ──
 // Phải có trong két = quỹ đầu ngày (số "để lại" lần chốt trước) + khách trả tiền mặt − trả NCC tiền mặt
@@ -1846,7 +1853,7 @@ async function formHang(id, tenGoiY) {
     await taiHang(true); S.hNgung = null;
     if (S.tab === 'hang') veDsHang();
     if (S.bangs.length && S.bangs[S.bangs.length - 1].hx) { dongBang(); moChiTietHang(kq.id); }
-    if (S.bangs.length) { const b = S.bangs[S.bangs.length - 1]; if (/^Hàng chưa có giá/.test(b.tieuDe)) { S.bangs.pop(); HD.hangChuaGia(); } else veBang(); }
+    if (S.bangs.length) { const b = S.bangs[S.bangs.length - 1]; if (/^Điền giá nhanh/.test(b.tieuDe)) { S.bangs.pop(); HD.hangChuaGia(); } else veBang(); }
   }; };
   moBang(id ? 'Sửa hàng ' + id : 'Thêm mặt hàng', ve); ganNop();
 }
@@ -1866,7 +1873,8 @@ function veHang() {
   const dms = [...new Set(S.hang.map(h => h.dm).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
   $('#noi-dung').innerHTML = `
     <div class="o-tim dong"><input class="o" id="o-tim-hang" type="search" data-i="timHangTab" placeholder="Tìm trong ${S.hang.length} mặt hàng…" value="${esc(S.hTim)}" autocomplete="off">
-      ${laChu() ? '<button class="nut chinh" data-a="hangMoi">＋</button>' : ''}</div>
+      ${laChu() ? `<button class="nut${S.hCheDo ? ' chinh' : ''}" data-a="hangCheDoChon">${S.hCheDo ? '✓ Xong' : '☑ Chọn'}</button>
+        ${S.hCheDo ? '' : '<button class="nut chinh" data-a="hangMoi">＋</button>'}` : ''}</div>
     <div class="loc">${Object.entries(LOC_HANG).filter(([k]) => k !== 'ngung' || laChu()).map(([k, [t]]) =>
       `<button data-a="locHang" data-k="${k}" class="${S.hLoc === k ? 'chon' : ''}">${t}</button>`).join('')}</div>
     <div class="loc"><button data-a="dmHang" data-dm="" class="${!S.hDm ? 'chon' : ''}">Mọi danh mục</button>
@@ -1897,14 +1905,69 @@ async function veDsHang() {
   if (!$('#ds-hang')) return;
   const giaGon = h => h.gia.map(g => `${esc(g.qc)}${g.qd > 1 ? '(' + so(g.qd) + ')' : ''} <b>${so(g.g / 1000)}k</b>`).join(' · ');
   o.innerHTML = `<p class="mo" style="margin:0 0 6px">${ds.length} mặt hàng</p>
-    <div class="the ds">${ds.slice(0, S.hSo).map(h => `<div class="muc dong" data-a="xemHang" data-id="${h.id}">
+    <div class="the ds">${ds.slice(0, S.hSo).map(h => `<div class="muc dong" data-a="${S.hCheDo ? 'chonHang' : 'xemHang'}" data-id="${h.id}">
+      ${S.hCheDo ? `<span class="o-chon">${S.hChon.has(h.id) ? '☑' : '☐'}</span>` : ''}
       <div class="gian"><b>${esc(h.ten)}</b><br>
         <span class="mo">${esc(h.dv)}${h.dm ? ' · ' + esc(h.dm) : ''}</span>
         ${h.ton != null ? ` <span class="the-nhan ${h.min != null || h.ton <= 0 ? 'do' : ''}">tồn ${so(h.ton)}${h.min != null ? ' / tối thiểu ' + so(h.min) : ''}</span>` : ''}
         <div style="font-size:13px;margin-top:2px">${h.ngung ? '<span class="the-nhan">ngừng bán</span>' : h.gia.length ? giaGon(h) : '<span class="the-nhan vang">chưa có giá</span>'}</div></div>
-      <span class="mo">›</span></div>`).join('') || '<div class="trong">Không có mặt hàng nào</div>'}</div>
-    ${ds.length > S.hSo ? `<button class="nut" style="width:100%" data-a="themDongHang">Xem thêm (${ds.length - S.hSo} món)</button>` : ''}`;
+      ${S.hCheDo ? '' : '<span class="mo">›</span>'}</div>`).join('') || '<div class="trong">Không có mặt hàng nào</div>'}</div>
+    ${ds.length > S.hSo ? `<button class="nut" style="width:100%" data-a="themDongHang">Xem thêm (${ds.length - S.hSo} món)</button>` : ''}
+    ${S.hCheDo ? '<div style="height:120px"></div>' : ''}`;
+  veThanhChon(ds.length);
 }
+
+// ── CHỌN NHIỀU MÓN: xoá / ngừng bán / bán lại hàng loạt (chỉ chủ) ──
+HD.hangCheDoChon = () => { S.hCheDo = !S.hCheDo; S.hChon = new Set(); veHang(); };
+HD.chonHang = el => { const id = el.dataset.id; S.hChon.has(id) ? S.hChon.delete(id) : S.hChon.add(id);
+  const o = el.querySelector('.o-chon'); if (o) o.textContent = S.hChon.has(id) ? '☑' : '☐'; veThanhChon(); };
+function veThanhChon(tongLoc) {
+  let o = $('#thanh-chon');
+  if (!S.hCheDo || S.tab !== 'hang') { if (o) o.remove(); return; }
+  if (!o) { o = document.createElement('div'); o.id = 'thanh-chon'; document.body.appendChild(o); }
+  if (tongLoc != null) S.hTongLoc = tongLoc;
+  const n = S.hChon.size, ngung = S.hLoc === 'ngung';
+  o.innerHTML = `<div class="dong"><b class="gian">Đã chọn ${n} món</b>
+      <button class="nut nho" style="background:none;color:#fff;border-color:#57534e" data-a="hangChonHet">Chọn hết ${S.hTongLoc || 0} món đang lọc</button></div>
+    <div class="hang-nut">${n ? `<button class="nut nho" style="background:none;color:#fff;border-color:#57534e" data-a="hangBoChon">Bỏ chọn</button>
+      ${ngung ? '<button class="nut" data-a="hangBanLai">▶ Bán lại</button>' : '<button class="nut" data-a="hangNgungLoat">⛔ Ngừng bán</button>'}
+      <button class="nut do" data-a="hangXoaLoat">🗑 Xoá</button>` : '<span class="mo" style="color:#d6d3d1">Bấm vào từng món để chọn, hoặc lọc rồi "Chọn hết"</span>'}</div>`;
+}
+HD.hangChonHet = async () => { (await locDsHang()).forEach(h => S.hChon.add(h.id)); veDsHang(); };
+HD.hangBoChon = () => { S.hChon = new Set(); veDsHang(); };
+// Bỏ món khỏi máy (danh mục bán + các đơn đang lên dở) sau khi xoá / ngừng bán
+function boHangKhoiMay(ids) {
+  const bo = new Set(ids); let soDong = 0;
+  S.hang = S.hang.filter(h => !bo.has(h.id)); luu('bh_hang', { hang: S.hang, taiLuc: S.hangLuc });
+  S.gios.forEach(g => { const n = g.dong.length; g.dong = g.dong.filter(d => !bo.has(d.id)); soDong += n - g.dong.length; }); luuGio();
+  return soDong;
+}
+HD.hangXoaLoat = async () => {
+  const ids = [...S.hChon], n = ids.length;
+  const ghiChu = 'Món <b>chưa từng bán / nhập</b> sẽ bị <b class="no">xoá hẳn</b> (kèm bảng giá) – không khôi phục được.<br>' +
+    'Món <b>đã có trong đơn cũ</b> sẽ chỉ <b>ngừng bán</b> (ẩn đi) để giữ đúng hoá đơn và công nợ.';
+  if (n > 20) {
+    const v = await hoi('Xoá ' + n + ' món?', [{ k: 'xn', nhan: 'Gõ chữ XOA để xác nhận', goiY: 'XOA' }], 'Xoá ' + n + ' món', ghiChu);
+    if (!v) return; if (boDau(v.xn).toUpperCase() !== 'XOA') return thongBao('Chưa gõ đúng chữ XOA – chưa xoá gì', 'loi');
+  } else if (!await hoi('Xoá ' + n + ' món đã chọn?', [], 'Xoá ' + n + ' món', ghiChu)) return;
+  const kq = await cho('Đang xoá ' + n + ' món…', () => rpc('xoa_hang_hoa', { p_ids: ids }));
+  const boGio = boHangKhoiMay(ids); S.hNgung = null; S.hChon = new Set(); veHang();
+  taiHang(true).catch(() => {});
+  await hoi('Đã xong', [], 'OK', `🗑 Xoá hẳn: <b>${kq.da_xoa}</b> món<br>⛔ Chuyển ngừng bán (đã có trong đơn cũ): <b>${kq.ngung_ban}</b> món` +
+    (kq.ngung_ban ? `<br><span class="mo">${kq.ten_ngung.slice(0, 15).map(esc).join(', ')}${kq.ngung_ban > 15 ? '…' : ''}</span>` : '') +
+    (boGio ? `<br>🛒 Đã bỏ ${boGio} dòng của các món này khỏi đơn đang lên dở.` : ''));
+};
+HD.hangNgungLoat = async () => {
+  const ids = [...S.hChon];
+  if (!await xacNhan('Ngừng bán ' + ids.length + ' món? (ẩn khỏi tìm kiếm, bật lại được ở bộ lọc "Ngừng bán")', 'Ngừng bán')) return;
+  const n = await cho('Đang lưu…', () => rpc('dat_dang_ban', { p_ids: ids, p_ban: false }));
+  boHangKhoiMay(ids); S.hNgung = null; S.hChon = new Set(); veHang(); thongBao('Đã ngừng bán ' + n + ' món', 'tot');
+};
+HD.hangBanLai = async () => {
+  const ids = [...S.hChon];
+  const n = await cho('Đang lưu…', () => rpc('dat_dang_ban', { p_ids: ids, p_ban: true }));
+  S.hNgung = null; S.hChon = new Set(); await taiHang(true); veHang(); thongBao('Đã bán lại ' + n + ' món', 'tot');
+};
 GO.timHangTab = el => { S.hTim = el.value; S.hSo = 60; veDsHang(); };
 HD.locHang = el => { S.hLoc = el.dataset.k; S.hSo = 60; veHang(); };
 HD.dmHang = el => { S.hDm = el.dataset.dm; S.hSo = 60; veHang(); };
