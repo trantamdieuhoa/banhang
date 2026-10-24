@@ -1483,7 +1483,7 @@ function veThem() {
       <div class="muc dong" data-a="doiMatKhau"><span class="gian">🔑 <b>Đổi mật khẩu</b></span>›</div>
       <div class="muc dong" data-a="dangXuat"><span class="gian no">⎋ Đăng xuất</span></div>
     </div>
-    <p class="mo" style="text-align:center">Bản 2.1</p>`;
+    <p class="mo" style="text-align:center">Bản 2.1.1</p>`;
 }
 // ── CHỐT SỔ CUỐI NGÀY (chủ) ──
 // Phải có trong két = quỹ đầu ngày (số "để lại" lần chốt trước) + khách trả tiền mặt − trả NCC tiền mặt
@@ -1738,6 +1738,8 @@ HD.dgNgung = async el => {
 
 // ── AI ĐỌC ẢNH SỔ GIÁ → màn hình duyệt → lưu vào bảng giá ──
 HD.aiSoGia = () => {
+  // AI chỉ điền giá cho món ĐÃ CÓ trong danh mục → danh mục trống thì báo rõ
+  if (!S.hang.length) return thongBao('Chưa có mặt hàng nào – thêm hàng (hoặc nạp lại danh mục) trước, rồi mới chụp sổ giá', 'loi');
   const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*';
   inp.onchange = async () => {
     const f = inp.files[0]; if (!f) return;
