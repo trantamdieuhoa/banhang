@@ -505,6 +505,7 @@ function veKhung() {
   const shop = (S.cauHinh.cua_hang || {}).ten || 'Bán hàng';
   $('#goc').innerHTML = `
     <div id="dau"><b>${esc(shop)}</b><small>${esc(S.toi ? S.toi.ten : '')}</small>
+      <button id="don-cho" class="dong-bo an" data-a="xemDonCho"></button>
       <button class="dong-bo" data-a="taiLaiTatCa" title="Tải lại dữ liệu">⟳</button></div>
     <div id="noi-dung"></div>
     <button id="thanh-gio" class="an" data-a="moGio"></button>
@@ -513,7 +514,7 @@ function veKhung() {
         .map(([t,i,c]) => `<button data-a="doiTab" data-t="${t}" class="${S.tab===t?'chon':''}"><i>${i}</i>${c}</button>`).join('')}
     </nav>
     <div id="man-che" class="an"><div id="bang"></div></div>`;
-  veTab();
+  veTab(); veDonCho();
 }
 HD.doiTab = el => { if (S.hCheDo && el.dataset.t !== 'hang') { S.hCheDo = false; const o = $('#thanh-chon'); if (o) o.remove(); } S.tab = el.dataset.t; document.querySelectorAll('#dieu-huong button').forEach(b => b.classList.toggle('chon', b === el)); veTab(); };
 function veTab() {
@@ -895,6 +896,8 @@ HD.luuDon = async el => {
     items: g.dong.map(d => ({ hang_hoa_id: d.id, quy_cach: d.qc, so_luong: d.sl, so_luong_quy_doi: d.qd,
       don_gia: d.gia, luu_gia: d.luuGia })),
   };
+  // Máy đang báo mất mạng → khỏi thử, cho vào hàng chờ luôn
+  if (navigator.onLine === false) return xepDonCho(g, p, t);
   dangLuu = true;
   try {
     const kq = await chay(el, 'Đang lưu…', () => rpc('tao_don_hang', { p }));
@@ -906,9 +909,72 @@ HD.luuDon = async el => {
     if (coGiaMoi) taiHang(true).catch(() => {});
     moDon(kq.id);
   } catch (e) {
-    if (/kết nối/.test(e.message)) thongBao('Mất mạng khi lưu. Có mạng lại thì cứ bấm Lưu lần nữa – app tự chống lưu trùng đơn.', 'loi');
+    if (/kết nối/.test(e.message)) xepDonCho(g, p, t);
     else thongBao(e.message, 'loi');
   } finally { dangLuu = false; }
+};
+
+// ── BÁN KHI MẤT MẠNG ──
+// Lưu đơn lúc mất mạng → đơn vào "hàng chờ" trên máy (bh_don_cho), giỏ được giải phóng để lên đơn khác.
+// Có mạng lại (hoặc mở lại app / mỗi 20 giây) → tự gửi lần lượt. Mỗi đơn mang mã phiếu riêng nên gửi lại
+// nhiều lần cũng chỉ tạo 1 đơn (kể cả lúc máy chủ đã lưu mà điện thoại chưa nhận được trả lời).
+S.donCho = doc('bh_don_cho') || [];
+const luuDonCho = () => { luu('bh_don_cho', S.donCho); veDonCho(); };
+function xepDonCho(g, p, t) {
+  if (!S.donCho.some(x => x.ma === g.ma)) S.donCho.push({ ma: g.ma, p, gio: JSON.parse(JSON.stringify(g)), ten: tenKhachGio(g), tong: t.tong, so: g.dong.length, luc: Date.now() });
+  luuDonCho(); xoaGioDangMo(g); S.bangs = []; veBang();
+  thongBao('📶 Mất mạng – đã lưu tạm đơn ' + tenKhachGio(g) + ' (' + tien(t.tong) + '). Có mạng app tự gửi.', 'tot');
+}
+function veDonCho() {
+  const b = $('#don-cho'); if (!b) return;
+  const n = S.donCho.length, loi = S.donCho.some(x => x.loi);
+  b.classList.toggle('an', !n);
+  b.textContent = (loi ? '⚠ ' : '⏳ ') + n + ' đơn chờ gửi';
+  b.style.background = loi ? 'var(--do)' : '';
+}
+let dangGuiCho = false;
+async function guiDonCho(baoTin) {
+  if (dangGuiCho || !S.donCho.length || !phien || !S.toi) return;
+  dangGuiCho = true; let da = 0;
+  try {
+    for (const x of [...S.donCho]) {
+      try {
+        const kq = await rpc('tao_don_hang', { p: x.p });
+        S.donCho = S.donCho.filter(y => y.ma !== x.ma); luuDonCho(); da++;
+        thongBao('✓ Đã gửi đơn ' + kq.id + ' – ' + x.ten + ' (lưu lúc mất mạng)', 'tot');
+      } catch (e) {
+        if (/kết nối/.test(e.message)) break;            // vẫn mất mạng → thôi, lát thử lại
+        x.loi = e.message; luuDonCho();                  // lỗi khác (VD món đã xoá) → giữ lại cho người dùng xử lý
+      }
+    }
+  } finally { dangGuiCho = false; }
+  if (da) { taiKhach().catch(() => {}); if (S.tab === 'don') veDon(); }
+  if (baoTin && !da && S.donCho.length) thongBao(S.donCho.some(x => x.loi) ? 'Có đơn bị lỗi – xem chi tiết' : 'Vẫn chưa có mạng', 'loi');
+  if (S.bangs.length && S.bangs[S.bangs.length - 1].tieuDe === 'Đơn chờ gửi') veBang();
+}
+window.addEventListener('online', () => guiDonCho());
+setInterval(() => { if (S.donCho.length && navigator.onLine !== false) guiDonCho(); }, 20000);
+HD.xemDonCho = () => moBang('Đơn chờ gửi', () => `<p class="mo">Các đơn lưu lúc mất mạng. App tự gửi khi có mạng (gửi lại nhiều lần vẫn không bị trùng đơn).</p>
+  <div class="the ds">${S.donCho.map(x => `<div class="muc"><div class="dong"><span class="gian"><b>${esc(x.ten)}</b> · ${x.so} món<br>
+      <span class="mo">lưu lúc ${ngayGio(new Date(x.luc).toISOString())}</span>${x.loi ? `<br><span class="no">⚠ ${esc(x.loi)}</span>` : ''}</span>
+      <b class="tien">${tien(x.tong)}</b></div>
+    <div class="hang-nut" style="margin-top:6px"><button class="nut nho" data-a="donChoVeGio" data-ma="${x.ma}">↩ Đưa về giỏ để sửa</button>
+      <button class="nut nho do" data-a="donChoXoa" data-ma="${x.ma}">🗑 Bỏ đơn</button></div></div>`).join('') || '<div class="trong">Không còn đơn nào chờ gửi ✓</div>'}</div>
+  ${S.donCho.length ? '<button class="nut chinh" style="width:100%" data-a="donChoGuiNgay">📶 Gửi lại ngay</button>' : ''}`);
+HD.donChoGuiNgay = el => chay(el, 'Đang gửi…', () => guiDonCho(true));
+HD.donChoVeGio = el => {
+  const x = S.donCho.find(y => y.ma === el.dataset.ma); if (!x) return;
+  if (S.gios.length >= CFG.soDonTamToiDa) return thongBao('Đang có nhiều đơn lên dở – lưu bớt trước', 'loi');
+  S.donCho = S.donCho.filter(y => y.ma !== x.ma); luuDonCho();
+  if (!S.gio.dong.length && !S.gio.kh && !S.gio.khMoi) S.gios.splice(S.gioSo, 1);   // bỏ giỏ trống đang mở
+  S.gios.push(x.gio); chonGio(S.gios.length - 1);              // giữ nguyên mã phiếu → không sinh đơn trùng
+  S.bangs = []; veBang(); S.tab = 'ban'; veKhung(); moBang('Đơn hàng', veGio);
+  thongBao('Đã đưa đơn ' + x.ten + ' về giỏ', 'tot');
+};
+HD.donChoXoa = async el => {
+  const x = S.donCho.find(y => y.ma === el.dataset.ma); if (!x) return;
+  if (!await xacNhan('Bỏ hẳn đơn ' + x.ten + ' (' + tien(x.tong) + ')? Đơn này sẽ không được gửi.', 'Bỏ đơn')) return;
+  S.donCho = S.donCho.filter(y => y.ma !== x.ma); luuDonCho(); veBang();
 };
 
 // ── 6b. DÁN TIN NHẮN ZALO → AI LÊN ĐƠN ──────────────────────────────
@@ -1469,6 +1535,7 @@ function veThem() {
     ${laChu() ? `
     <div class="the ds">
       <div class="muc dong" data-a="baoCao"><span class="gian">📊 <b>Báo cáo doanh thu</b></span>›</div>
+      <div class="muc dong" data-a="ktMo"><span class="gian">🧾 <b>Hoá đơn cho kế toán</b><br><span class="mo">Xuất Excel + PDF hoá đơn bán theo tháng</span></span>›</div>
       <div class="muc dong" data-a="chotSo"><span class="gian">🧮 <b>Chốt sổ cuối ngày</b><br><span class="mo">Đếm két, đối chiếu tiền mặt</span></span>›</div>
       <div class="muc dong" data-a="hangMoi"><span class="gian">📦 <b>Thêm mặt hàng mới</b><br><span class="mo">Sửa giá: tìm hàng ở tab Bán → bấm ✎</span></span>›</div>
       <div class="muc dong" data-a="hangChuaGia"><span class="gian">🏷 <b>Điền giá nhanh</b><br><span class="mo">${S.hang.filter(h => !h.gia.length).length} món chưa có giá · có AI đọc sổ giá</span></span>›</div>
@@ -1483,8 +1550,132 @@ function veThem() {
       <div class="muc dong" data-a="doiMatKhau"><span class="gian">🔑 <b>Đổi mật khẩu</b></span>›</div>
       <div class="muc dong" data-a="dangXuat"><span class="gian no">⎋ Đăng xuất</span></div>
     </div>
-    <p class="mo" style="text-align:center">Bản 2.1.2</p>`;
+    <p class="mo" style="text-align:center">Bản 2.2</p>`;
 }
+// ── HOÁ ĐƠN CHO KẾ TOÁN: Excel + PDF các hoá đơn bán trong 1 tháng (chủ) ──
+// Lấy đơn theo tháng (giờ VN), mỗi lần 1000 đơn cho tới hết, kèm chi tiết món + khách + tiền đã trả.
+const THU_VIEN = {
+  xlsx: 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
+  jspdf: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+  // Font Roboto đủ dấu tiếng Việt (font mặc định của PDF không có dấu)
+  font: 'https://cdn.jsdelivr.net/npm/@expo-google-fonts/roboto@0.4.3/400Regular/Roboto_400Regular.ttf',
+  fontDam: 'https://cdn.jsdelivr.net/npm/@expo-google-fonts/roboto@0.4.3/700Bold/Roboto_700Bold.ttf',
+};
+HD.ktMo = () => {
+  const d = new Date(Date.now() + 7 * 3600e3); // tháng trước nếu đang đầu tháng (≤ ngày 10), không thì tháng này
+  if (d.getUTCDate() <= 10) d.setUTCMonth(d.getUTCMonth() - 1);
+  S.kt = { thang: d.toISOString().slice(0, 7) };
+  moBang('Hoá đơn cho kế toán', () => `<label class="nhan">Tháng</label>
+    <input class="o" type="month" value="${S.kt.thang}" max="${ngayVN(0).slice(0, 7)}" data-d="ktThang">
+    <p class="mo">Gồm mọi đơn bán trong tháng (đơn đã huỷ vẫn liệt kê, ghi rõ "Đã huỷ", không cộng vào doanh thu).</p>
+    <div class="the"><b>📊 Excel</b><p class="mo" style="margin:4px 0 8px">3 trang: Tổng hợp theo ngày · Danh sách hoá đơn · Chi tiết từng món</p>
+      <button class="nut chinh" style="width:100%" data-a="ktExcel">⬇ Tải Excel</button></div>
+    <div class="the"><b>📄 PDF</b><p class="mo" style="margin:4px 0 8px">Bảng kê + từng hoá đơn (tên cửa hàng, khách, món, số lượng, đơn giá, thành tiền)</p>
+      <button class="nut chinh" style="width:100%" data-a="ktPdf">⬇ Tải PDF</button></div>`);
+};
+DOI.ktThang = el => { if (el.value) S.kt.thang = el.value; };
+async function layDonThang(thang) {
+  const [y, m] = thang.split('-').map(Number);
+  const dau = thang + '-01T00:00:00+07:00', cuoi = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 7) + '-01T00:00:00+07:00';
+  const ds = []; let tu = 0;
+  for (;;) {
+    const phan = await api('don_hang?select=id,ngay,hinh_thuc,tong_tien_hang,chiet_khau,tong_cong,ghi_chu,trang_thai,nguoi_tao,' +
+      'khach_hang(ten,sdt,dia_chi),don_hang_ct(stt,ten_hang,quy_cach,so_luong,don_gia,giam_gia,thanh_tien),thanh_toan(so_tien)' +
+      '&ngay=gte.' + encodeURIComponent(dau) + '&ngay=lt.' + encodeURIComponent(cuoi) + '&order=ngay,id&limit=1000&offset=' + tu);
+    ds.push(...phan); if (phan.length < 1000) break; tu += 1000;
+  }
+  ds.forEach(d => { d.ct = (d.don_hang_ct || []).sort((a, b) => a.stt - b.stt); d.kh = d.khach_hang || {};
+    d.da_tra = (d.thanh_toan || []).reduce((s, t) => s + Number(t.so_tien), 0); d.huy = d.trang_thai === 'huy'; });
+  return ds;
+}
+const tenThang = t => t.split('-').reverse().join('/');
+// Chia sẻ (iPhone: lưu vào Tệp / gửi Zalo) hoặc tải thẳng (máy tính)
+async function giaoFile(blob, tenFile) {
+  const f = new File([blob], tenFile, { type: blob.type });
+  if (navigator.canShare && navigator.canShare({ files: [f] })) {
+    try { await navigator.share({ files: [f], title: tenFile }); return; } catch (e) { if (e.name === 'AbortError') return; }
+  }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = tenFile;
+  document.body.appendChild(a); a.click(); a.remove(); thongBao('Đã tạo ' + tenFile, 'tot');
+}
+HD.ktExcel = el => chay(el, 'Đang tạo…', async () => {
+  const thang = S.kt.thang;
+  const [ds] = await Promise.all([layDonThang(thang), napThuVien(THU_VIEN.xlsx, 'XLSX')]);
+  if (!ds.length) return thongBao('Tháng ' + tenThang(thang) + ' không có đơn nào', 'loi');
+  const ngay = d => ngayDayDu(d.ngay), hl = ds.filter(d => !d.huy);
+  // Tổng hợp theo ngày
+  const theoNgay = {};
+  ds.forEach(d => { const k = phanNgay(d.ngay); const n = k.d + '/' + k.m + '/' + k.y;
+    const t = theoNgay[n] = theoNgay[n] || { don: 0, dt: 0, tm: 0, ck: 0, no: 0, huy: 0 };
+    if (d.huy) { t.huy++; return; } t.don++; t.dt += Number(d.tong_cong);
+    t[d.hinh_thuc === 'Tiền mặt' ? 'tm' : d.hinh_thuc === 'Chuyển khoản' ? 'ck' : 'no'] += Number(d.tong_cong); });
+  const tong = Object.values(theoNgay).reduce((a, t) => { for (const k in t) a[k] = (a[k] || 0) + t[k]; return a; }, {});
+  const wb = XLSX.utils.book_new(), them = (ten, dong, rong) => { const ws = XLSX.utils.aoa_to_sheet(dong); ws['!cols'] = rong.map(w => ({ wch: w })); XLSX.utils.book_append_sheet(wb, ws, ten); };
+  const shop = S.cauHinh.cua_hang || {};
+  them('Tổng hợp', [['BẢNG KÊ HOÁ ĐƠN BÁN HÀNG – THÁNG ' + tenThang(thang)], [shop.ten || '', shop.dia_chi || '', shop.sdt || ''], [],
+    ['Ngày', 'Số đơn', 'Doanh thu', 'Tiền mặt', 'Chuyển khoản', 'Ghi nợ', 'Đơn huỷ'],
+    ...Object.entries(theoNgay).map(([n, t]) => [n, t.don, t.dt, t.tm, t.ck, t.no, t.huy]),
+    ['TỔNG', tong.don, tong.dt, tong.tm, tong.ck, tong.no, tong.huy]], [12, 8, 14, 14, 14, 14, 8]);
+  them('Hoá đơn', [['Số hoá đơn', 'Ngày giờ', 'Khách hàng', 'SĐT', 'Hình thức', 'Tiền hàng', 'Chiết khấu', 'Tổng cộng', 'Đã trả', 'Còn nợ', 'Trạng thái', 'Người bán', 'Ghi chú'],
+    ...ds.map(d => [d.id, ngay(d), d.kh.ten || '', d.kh.sdt || '', d.hinh_thuc, Number(d.tong_tien_hang), Number(d.chiet_khau), Number(d.tong_cong),
+      d.huy ? 0 : d.da_tra, d.huy ? 0 : Math.max(Number(d.tong_cong) - d.da_tra, 0), d.huy ? 'Đã huỷ' : 'Hoàn tất', d.nguoi_tao || '', d.ghi_chu || '']),
+    ['TỔNG (không tính đơn huỷ)', '', '', '', '', hl.reduce((s, d) => s + Number(d.tong_tien_hang), 0), hl.reduce((s, d) => s + Number(d.chiet_khau), 0), tong.dt]],
+    [12, 16, 24, 12, 13, 12, 10, 12, 12, 12, 10, 12, 24]);
+  them('Chi tiết hàng', [['Số hoá đơn', 'Ngày giờ', 'Khách hàng', 'STT', 'Tên hàng', 'Quy cách', 'Số lượng', 'Đơn giá', 'Giảm giá', 'Thành tiền', 'Trạng thái'],
+    ...ds.flatMap(d => d.ct.map(c => [d.id, ngay(d), d.kh.ten || '', c.stt, c.ten_hang, c.quy_cach, Number(c.so_luong), Number(c.don_gia), Number(c.giam_gia), Number(c.thanh_tien), d.huy ? 'Đã huỷ' : '']))],
+    [12, 16, 22, 5, 34, 10, 9, 12, 9, 12, 9]);
+  const blob = new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  await giaoFile(blob, 'hoadon_' + thang + '.xlsx');
+});
+async function taiFontBase64(url) {
+  let r; try { r = await fetch(url); } catch (e) { throw new Error('Không tải được font chữ – kiểm tra mạng'); }
+  const b = new Uint8Array(await r.arrayBuffer()); let s = '';
+  for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+HD.ktPdf = el => chay(el, 'Đang tạo PDF…', async () => {
+  const thang = S.kt.thang;
+  const [ds, , f1, f2] = await Promise.all([layDonThang(thang), napThuVien(THU_VIEN.jspdf, 'jspdf'), taiFontBase64(THU_VIEN.font), taiFontBase64(THU_VIEN.fontDam)]);
+  if (!ds.length) return thongBao('Tháng ' + tenThang(thang) + ' không có đơn nào', 'loi');
+  const doc = new jspdf.jsPDF({ unit: 'mm', format: 'a4' });
+  doc.addFileToVFS('R.ttf', f1); doc.addFont('R.ttf', 'Roboto', 'normal');
+  doc.addFileToVFS('RB.ttf', f2); doc.addFont('RB.ttf', 'Roboto', 'bold');
+  const L = 14, R = 196, CAO = 285, so = n => Math.round(Number(n) || 0).toLocaleString('vi-VN');
+  let y = 16;
+  const chu = (t, x, cd, o) => { doc.setFont('Roboto', (o && o.dam) ? 'bold' : 'normal'); doc.setFontSize((o && o.co) || 9.5); doc.text(String(t), x, cd, o && o.phai ? { align: 'right' } : undefined); };
+  const sangTrang = can => { if (y + can > CAO) { doc.addPage(); y = 16; } };
+  const shop = S.cauHinh.cua_hang || {}, hl = ds.filter(d => !d.huy);
+  // Trang đầu: bảng kê tóm tắt
+  chu(shop.ten || 'Cửa hàng', L, y, { dam: 1, co: 15 }); y += 6;
+  chu([shop.dia_chi, shop.sdt && 'ĐT: ' + shop.sdt].filter(Boolean).join(' · '), L, y); y += 9;
+  chu('BẢNG KÊ HOÁ ĐƠN BÁN HÀNG – THÁNG ' + tenThang(thang), L, y, { dam: 1, co: 13 }); y += 7;
+  chu('Số hoá đơn: ' + hl.length + (ds.length > hl.length ? '  (đã huỷ: ' + (ds.length - hl.length) + ', không cộng)' : '') +
+      '      Tổng doanh thu: ' + so(hl.reduce((s, d) => s + Number(d.tong_cong), 0)) + ' đ', L, y, { dam: 1 }); y += 8;
+  doc.setDrawColor(160); doc.line(L, y, R, y); y += 6;
+  // Từng hoá đơn – giữ trọn 1 hoá đơn trên 1 trang nếu vừa
+  ds.forEach(d => {
+    const dong = d.ct.map(c => ({ c, ten: doc.setFont('Roboto', 'normal').setFontSize(9.5).splitTextToSize(c.ten_hang, 82) }));
+    const cao = 22 + dong.reduce((s, x) => s + x.ten.length * 4.4, 0) + (Number(d.chiet_khau) ? 5 : 0);
+    sangTrang(Math.min(cao, CAO - 16));
+    chu('HOÁ ĐƠN ' + d.id, L, y, { dam: 1, co: 11 }); chu(ngayDayDu(d.ngay) + (d.huy ? '   ĐÃ HUỶ' : ''), R, y, { phai: 1, dam: d.huy }); y += 5;
+    chu('Khách: ' + (d.kh.ten || '') + (d.kh.sdt ? ' – ' + d.kh.sdt : '') + '    Thanh toán: ' + d.hinh_thuc, L, y); y += 5.5;
+    chu('STT', L, y, { dam: 1, co: 8.5 }); chu('Tên hàng', L + 9, y, { dam: 1, co: 8.5 }); chu('SL', 118, y, { dam: 1, co: 8.5, phai: 1 });
+    chu('Quy cách', 121, y, { dam: 1, co: 8.5 }); chu('Đơn giá', 166, y, { dam: 1, co: 8.5, phai: 1 }); chu('Thành tiền', R, y, { dam: 1, co: 8.5, phai: 1 }); y += 4.5;
+    dong.forEach(({ c, ten }) => {
+      sangTrang(ten.length * 4.4 + 2);
+      chu(c.stt, L, y); doc.text(ten, L + 9, y); chu(so(c.so_luong), 118, y, { phai: 1 }); chu(c.quy_cach, 121, y);
+      chu(so(c.don_gia - c.giam_gia), 166, y, { phai: 1 }); chu(so(c.thanh_tien), R, y, { phai: 1 }); y += ten.length * 4.4;
+    });
+    if (Number(d.chiet_khau)) { chu('Chiết khấu: −' + so(d.chiet_khau), R, y, { phai: 1 }); y += 4.5; }
+    chu('TỔNG CỘNG: ' + so(d.tong_cong) + ' đ', R, y + 1, { phai: 1, dam: 1, co: 10.5 }); y += 5;
+    doc.setDrawColor(200); doc.line(L, y, R, y); y += 6;
+  });
+  // Số trang
+  const n = doc.getNumberOfPages();
+  for (let i = 1; i <= n; i++) { doc.setPage(i); chu('Trang ' + i + '/' + n + ' · Hoá đơn tháng ' + tenThang(thang), R, 292, { phai: 1, co: 8 }); }
+  await giaoFile(doc.output('blob'), 'hoadon_' + thang + '.pdf');
+});
+
 // ── CHỐT SỔ CUỐI NGÀY (chủ) ──
 // Phải có trong két = quỹ đầu ngày (số "để lại" lần chốt trước) + khách trả tiền mặt − trả NCC tiền mặt
 HD.chotSo = el => chay(el, '…', async () => { S.cs = { ngay: ngayVN(0) }; await taiChotSo(); moBang('Chốt sổ', veChotSo); });
@@ -1592,11 +1783,14 @@ const BANG_SAO_LUU = [
   ['Nhà cung cấp', [['Mã', 'id', 0, 8], ['Nhà cung cấp', 'ten', 0, 26], ['Địa chỉ', 'dia_chi', 0, 26], ['SĐT NCC', 'sdt', 0, 12], ['NV bán hàng', 'nguoi_lien_he', 0, 16],
     ['SĐT NV', 'sdt_nv', 0, 12], ['Lịch giao', 'lich_giao', 0, 14], ['Ghi chú', 'ghi_chu', 0, 20], ['Đang hợp tác', 'dang_hop_tac', 0, 8], ['Mặt hàng', 'mat_hang', 0, 60]], 'ncc'],
 ];
-HD.dangXuat = async () => { if (await xacNhan('Đăng xuất khỏi máy này?', 'Đăng xuất')) dangXuat(); };
+HD.dangXuat = async () => {
+  if (S.donCho.length && !await xacNhan('Còn ' + S.donCho.length + ' đơn lưu lúc mất mạng CHƯA GỬI lên máy chủ. Đăng xuất bây giờ sẽ MẤT các đơn này. Vẫn đăng xuất?', 'Vẫn đăng xuất')) return;
+  if (await xacNhan('Đăng xuất khỏi máy này?', 'Đăng xuất')) dangXuat();
+};
 function dangXuat() {
   const tk = phien && phien.access_token; phien = null; S.toi = null;
   if (tk) fetch(CFG.url + '/auth/v1/logout', { method: 'POST', headers: { apikey: CFG.key, Authorization: 'Bearer ' + tk } }).catch(() => {});
-  ['bh_phien', 'bh_toi', 'bh_khach', 'bh_gio', 'bh_gios', 'bh_gio_so'].forEach(xoa); S.bangs = []; veBang(); S.tab = 'ban';
+  ['bh_phien', 'bh_toi', 'bh_khach', 'bh_gio', 'bh_gios', 'bh_gio_so', 'bh_don_cho'].forEach(xoa); S.donCho = []; S.bangs = []; veBang(); S.tab = 'ban';
   S.gios = [gioMoi()]; S.gioSo = 0; S.gio = S.gios[0]; S.noDs = null; veDangNhap();
 }
 HD.doiMatKhau = async () => {
@@ -2316,6 +2510,7 @@ async function vaoApp() {
   await Promise.all([taiCauHinh(), taiKhach(), S.hang.length ? Promise.resolve() : taiHang(true)]);
   veKhung();
   if (Date.now() - S.hangLuc > 60e3) taiHang(true).catch(() => {});
+  guiDonCho();
 }
 async function khoiDong() {
   // Xin trình duyệt đừng tự xoá bộ nhớ của app (giỏ hàng, phiên đăng nhập)
@@ -2330,7 +2525,12 @@ async function khoiDong() {
 // Quay lại app sau khi để lâu → tự tải lại hàng
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && S.toi && Date.now() - S.hangLuc > CFG.phutLamMoiHang * 60e3) taiHang(true).catch(() => {});
+  if (!document.hidden) guiDonCho();
 });
+// Lưu sẵn app trên máy (service worker) → mở được app kể cả khi mất mạng.
+// Chỉ khi app chạy ở web riêng (GitHub Pages), không chạy trong khung Apps Script.
+if ('serviceWorker' in navigator && window.top === window && /^https:|^http:\/\/localhost/.test(location.href) && !/google/.test(location.hostname))
+  navigator.serviceWorker.register('sw.js').catch(() => {});
 window.__appChay = true;   // dấu hiệu: mã app đã chạy hết (không bị dán thiếu)
 khoiDong();
 </script>
