@@ -396,19 +396,28 @@ async function cho(chu, viec) {
 // Ô ảnh nhỏ (link + ảnh được gắn sau bởi napAnh)
 const veAnh = ds => (ds && ds.length) ? `<div class="anh-ds">${ds.map(p => `<a class="anh-nho" data-anh="${esc(p)}" target="_blank" rel="noopener"><img alt=""></a>`).join('')}</div>` : '';
 const LINK_ANH = {};   // đường dẫn → {url, het} (giữ 50 phút khỏi xin lại)
+// Xin link xem ảnh (hết hạn sau 1 giờ) cho các ảnh chưa có link
+async function kyLinkAnh(ds) {
+  const can = [...new Set(ds)].filter(p => !(LINK_ANH[p] && LINK_ANH[p].het > Date.now()));
+  if (!can.length) return;
+  await tokenConHan();
+  const r = await fetch(CFG.url + '/storage/v1/object/sign/anh', { method: 'POST',
+    headers: { apikey: CFG.key, Authorization: 'Bearer ' + phien.access_token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expiresIn: 3600, paths: can }) });
+  const j = await r.json();
+  (Array.isArray(j) ? j : []).forEach(x => { if (x.signedURL) LINK_ANH[x.path] = { url: CFG.url + '/storage/v1' + x.signedURL, het: Date.now() + 50 * 60e3 }; });
+}
+// Tải lại 1 ảnh đã lưu (VD ảnh toa cũ để AI đọc) → Blob
+async function layAnhKho(duong) {
+  await kyLinkAnh([duong]);
+  if (!LINK_ANH[duong]) throw new Error('Không mở được ảnh đã lưu – kiểm tra mạng');
+  const r = await fetch(LINK_ANH[duong].url); if (!r.ok) throw new Error('Không tải được ảnh toa (' + r.status + ')');
+  return r.blob();
+}
+const sangBase64 = blob => new Promise(ok => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.readAsDataURL(blob); });
 async function napAnh() {
   const o = [...document.querySelectorAll('a[data-anh]:not([href])')]; if (!o.length) return;
-  const can = [...new Set(o.map(a => a.dataset.anh))].filter(p => !(LINK_ANH[p] && LINK_ANH[p].het > Date.now()));
-  if (can.length) {
-    try {
-      await tokenConHan();
-      const r = await fetch(CFG.url + '/storage/v1/object/sign/anh', { method: 'POST',
-        headers: { apikey: CFG.key, Authorization: 'Bearer ' + phien.access_token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expiresIn: 3600, paths: can }) });
-      const j = await r.json();
-      (Array.isArray(j) ? j : []).forEach(x => { if (x.signedURL) LINK_ANH[x.path] = { url: CFG.url + '/storage/v1' + x.signedURL, het: Date.now() + 50 * 60e3 }; });
-    } catch (e) { return; }
-  }
+  try { await kyLinkAnh(o.map(a => a.dataset.anh)); } catch (e) { return; }
   document.querySelectorAll('a[data-anh]:not([href])').forEach(a => { const l = LINK_ANH[a.dataset.anh];
     if (l) { a.href = l.url; a.querySelector('img').src = l.url; } });
 }
@@ -1545,12 +1554,13 @@ function veThem() {
         <span class="mo">${esc(shop.ten || '')} · ${nh.so_tk ? esc(nh.ten_ngan_hang + ' ' + nh.so_tk) : '<span class="no">chưa có số tài khoản</span>'}</span></span>›</div>
     </div>` : ''}
     <div class="the ds">
-      <div class="muc dong" data-a="nccDs"><span class="gian">🚚 <b>Nhà cung cấp</b><br><span class="mo">SĐT, nhân viên bán hàng, mặt hàng từng NCC bỏ</span></span>›</div>
+      <div class="muc dong" data-a="nccDs"><span class="gian">🚚 <b>Nhà cung cấp</b><br><span class="mo">SĐT, mặt hàng, toa hàng · 🤖 AI đọc toa → giá vốn</span></span>›</div>
+      <div class="muc dong" data-a="kkMo"><span class="gian">📋 <b>Kiểm kho</b><br><span class="mo">${S.hang.filter(h => h.ton != null).length} món chủ lực · đếm nhanh, báo lệch</span></span>›</div>
       <div class="muc dong" data-a="taiLaiTatCa"><span class="gian">⟳ <b>Tải lại dữ liệu</b><br><span class="mo">${S.hang.length} hàng · ${S.khach.length} khách</span></span></div>
       <div class="muc dong" data-a="doiMatKhau"><span class="gian">🔑 <b>Đổi mật khẩu</b></span>›</div>
       <div class="muc dong" data-a="dangXuat"><span class="gian no">⎋ Đăng xuất</span></div>
     </div>
-    <p class="mo" style="text-align:center">Bản 2.2</p>`;
+    <p class="mo" style="text-align:center">Bản 2.3</p>`;
 }
 // ── HOÁ ĐƠN CHO KẾ TOÁN: Excel + PDF các hoá đơn bán trong 1 tháng (chủ) ──
 // Lấy đơn theo tháng (giờ VN), mỗi lần 1000 đơn cho tới hết, kèm chi tiết món + khách + tiền đã trả.
@@ -2065,7 +2075,7 @@ GO.xemTienHang = el => { el.title = tien(docTien(el.value)); };
 const LOC_HANG = {
   tat:    ['Tất cả',      null],
   chuagia:['Chưa có giá', h => !h.gia.length],
-  coton:  ['Theo dõi tồn', h => h.ton != null],
+  coton:  ['⭐ Chủ lực', h => h.ton != null],   // món chủ lực = món theo dõi tồn kho
   saphet: ['Sắp hết',     null],   // lấy từ máy chủ (cần tồn tối thiểu)
   ngung:  ['Ngừng bán',   null],   // hàng ẩn, không có trong danh mục bán
 };
@@ -2079,6 +2089,7 @@ function veHang() {
       `<button data-a="locHang" data-k="${k}" class="${S.hLoc === k ? 'chon' : ''}">${t}</button>`).join('')}</div>
     <div class="loc"><button data-a="dmHang" data-dm="" class="${!S.hDm ? 'chon' : ''}">Mọi danh mục</button>
       ${dms.map(d => `<button data-a="dmHang" data-dm="${esc(d)}" class="${S.hDm === d ? 'chon' : ''}">${esc(d)}</button>`).join('')}</div>
+    ${S.hCheDo ? '' : `<button class="nut" style="width:100%;margin-bottom:8px" data-a="kkMo">📋 Kiểm kho món chủ lực (${S.hang.filter(h => h.ton != null).length})</button>`}
     <div id="ds-hang"></div>`;
   veDsHang();
 }
@@ -2131,6 +2142,7 @@ function veThanhChon(tongLoc) {
       <button class="nut nho" style="background:none;color:#fff;border-color:#57534e" data-a="hangChonHet">Chọn hết ${S.hTongLoc || 0} món đang lọc</button></div>
     <div class="hang-nut">${n ? `<button class="nut nho" style="background:none;color:#fff;border-color:#57534e" data-a="hangBoChon">Bỏ chọn</button>
       ${ngung ? '<button class="nut" data-a="hangBanLai">▶ Bán lại</button>' : '<button class="nut" data-a="hangNgungLoat">⛔ Ngừng bán</button>'}
+      ${ngung ? '' : S.hLoc === 'coton' ? '<button class="nut" data-a="hangTheoDoiTon" data-k="0">☆ Bỏ chủ lực</button>' : '<button class="nut" data-a="hangTheoDoiTon" data-k="1">⭐ Theo dõi tồn</button>'}
       <button class="nut do" data-a="hangXoaLoat">🗑 Xoá</button>` : '<span class="mo" style="color:#d6d3d1">Bấm vào từng món để chọn, hoặc lọc rồi "Chọn hết"</span>'}</div>`;
 }
 HD.hangChonHet = async () => { (await locDsHang()).forEach(h => S.hChon.add(h.id)); veDsHang(); };
@@ -2201,10 +2213,10 @@ function veChiTietHang(h) {
       ${h.gia.map(g => `<div class="tong-dong"><span>${esc(g.qc || g.quy_cach)}${g.so_luong_quy_doi > 1 ? ` <span class="mo">(${so(g.so_luong_quy_doi)} ${esc(h.don_vi)})</span>` : ''}</span>
         <span><b class="tien">${tien(g.gia_ban)}</b>${g.so_luong_quy_doi > 1 ? `<br><span class="mo tien">${tien(g.gia_ban / g.so_luong_quy_doi)}/${esc(h.don_vi)}</span>` : ''}</span></div>`).join('')
         || '<p class="mo">Chưa có giá.</p>'}
-      ${chu && h.gia_von ? `<div class="tong-dong mo" style="border-top:1px dashed var(--vien);margin-top:6px;padding-top:8px"><span>Giá vốn / ${esc(h.don_vi)}</span><span class="tien">${tien(h.gia_von)}</span></div>
+      ${h.gia_von ? `<div class="tong-dong mo" style="border-top:1px dashed var(--vien);margin-top:6px;padding-top:8px"><span>Giá vốn / ${esc(h.don_vi)}</span><span class="tien">${tien(h.gia_von)}</span></div>
         ${h.gia.length ? `<div class="tong-dong mo"><span>Lãi / ${esc(h.don_vi)} (giá lẻ nhất)</span><span class="tien">${tien(h.gia[0].gia_ban / h.gia[0].so_luong_quy_doi - h.gia_von)}</span></div>` : ''}` : ''}</div>
-    <div class="the"><h3>Tồn kho</h3>
-      ${h.ton_kho == null ? '<p class="mo" style="margin:0">Không theo dõi tồn kho mặt hàng này.</p>'
+    <div class="the"><h3>Tồn kho${h.ton_kho != null ? ' <span class="the-nhan xanh">⭐ chủ lực</span>' : ''}</h3>
+      ${h.ton_kho == null ? '<p class="mo" style="margin:0">Không theo dõi tồn kho mặt hàng này. Món bán nhiều nên bật theo dõi để biết lúc sắp hết.</p>'
         : `<div class="so-lon ${h.ton_kho <= (h.ton_toi_thieu || 0) ? 'no' : ''}">${so(h.ton_kho)} ${esc(h.don_vi)}</div>
            ${tonTheoQC(h)}${h.ton_toi_thieu != null ? `<span class="mo">Tối thiểu: ${so(h.ton_toi_thieu)} ${esc(h.don_vi)}</span>` : ''}`}
       <div class="hang-nut"><button class="nut" data-a="kiemKho">📋 ${h.ton_kho == null ? 'Bắt đầu theo dõi tồn' : 'Kiểm kho / sửa tồn'}</button></div></div>
@@ -2283,7 +2295,7 @@ GO.timNcc = el => { S.timNcc = el.value; $('#ds-ncc').innerHTML = veDsNcc(); };
 async function layNcc(id) {
   const [r, toa, tra, no] = await Promise.all([
     api('nha_cung_cap?select=*,ncc_hang(tao_luc,hang_hoa(id,ten,don_vi,ton_kho,ton_toi_thieu,dang_ban))&id=eq.' + id),
-    api('phieu_nhap?select=id,ngay,tong_tien,so_toa,ghi_chu,anh,nguoi_nhap&ncc_id=eq.' + id + '&trang_thai=eq.hoan_tat&order=ngay.desc&limit=40'),
+    api('phieu_nhap?select=id,ngay,tong_tien,so_toa,ghi_chu,anh,nguoi_nhap,phieu_nhap_ct(count)&ncc_id=eq.' + id + '&trang_thai=eq.hoan_tat&order=ngay.desc&limit=40'),
     api('tra_ncc?select=*&ncc_id=eq.' + id + '&order=ngay.desc&limit=40'),
     api('v_cong_no_ncc?id=eq.' + id),
   ]);
@@ -2338,7 +2350,10 @@ function veToaNcc(n) {
         <b class="tien">${tien(d.x.tong_tien)}</b></div>
         <div class="anh-ds">${veAnh(d.x.anh).replace(/^<div class="anh-ds">|<\/div>$/g, '')}
           <button class="nut-anh" data-a="themAnh" data-loai="toa" data-id="${d.x.id}" data-tm="toa/${n.id}" title="Thêm ảnh">📎</button>
-          ${chu ? `<button class="nut-sua" style="color:var(--do);margin-left:auto" data-a="toaHuy" data-id="${d.x.id}">huỷ toa</button>` : ''}</div></div>` : `
+          ${chu ? `<button class="nut-sua" style="color:var(--do);margin-left:auto" data-a="toaHuy" data-id="${d.x.id}">huỷ toa</button>` : ''}</div>
+        <div class="hang-nut" style="margin-top:6px">${soCt(d.x) ? `<button class="nut nho" data-a="toaXemCt" data-id="${d.x.id}">📋 ${soCt(d.x)} món · giá vốn đã cập nhật</button>`
+          : (d.x.anh || []).length ? `<button class="nut nho chinh" data-a="toaDocAI" data-id="${d.x.id}">🤖 AI đọc chi tiết toa</button>`
+          : `<button class="nut nho" data-a="toaGoTay" data-id="${d.x.id}">✎ Nhập chi tiết toa</button>`}</div></div>` : `
       <div class="muc"><div class="dong"><span class="gian">💸 <b>Trả ${esc(d.x.hinh_thuc.toLowerCase())}</b> · ${ngayNgan(d.x.ngay)}<br>
           <span class="mo">${esc(d.x.nguoi_tra || '')}${d.x.phieu_nhap_id ? ' · trả luôn lúc nhận toa' : ''}${d.x.ghi_chu ? ' · ' + esc(d.x.ghi_chu) : ''}</span></span>
         <b class="tien" style="color:var(--chinh)">−${tien(d.x.so_tien)}</b></div>
@@ -2367,11 +2382,16 @@ HD.toaThem = async () => {
   await cho('Đang lưu toa' + (v.anh.length + (ck ? v.anh_ck.length : 0) ? ' và tải ảnh…' : '…'), async () => {
     const anh = await taiNhieuAnh(v.anh, 'toa/' + n.id);
     const anhCk = ck ? await taiNhieuAnh(v.anh_ck, 'ck-ncc/' + n.id) : [];
-    await rpc('tao_toa_ncc', { p: { ncc_id: n.id, tong_tien: v.tien, ngay: v.ngay, so_toa: v.so_toa, ghi_chu: v.gc, anh,
+    const r = await rpc('tao_toa_ncc', { p: { ncc_id: n.id, tong_tien: v.tien, ngay: v.ngay, so_toa: v.so_toa, ghi_chu: v.gc, anh,
       tra: v.tra === 'Ghi nợ NCC' ? null : { so_tien: v.tien, hinh_thuc: ck ? 'Chuyển khoản' : 'Tiền mặt', anh: anhCk } } });
-  });
+    return { id: r.id, tong_tien: v.tien, so_toa: v.so_toa, anh };
+  }).then(t => { toaMoi = t; });
   thongBao('Đã lưu toa ' + tien(v.tien) + (v.tra === 'Ghi nợ NCC' ? ' – ghi nợ NCC' : ' – đã trả'), 'tot'); await taiLaiNcc();
+  // Có ảnh → cho AI đọc luôn từng dòng hàng (dùng ảnh vừa chụp, khỏi tải lại)
+  if (toaMoi && v.anh.length && await hoi('Đọc chi tiết toa?', [], '🤖 AI đọc ngay', 'AI đọc từng dòng hàng trên toa → <b>cập nhật giá vốn</b> mọi món, <b>cộng tồn</b> món chủ lực. Bạn duyệt lại trước khi lưu.'))
+    await docToaAI(toaMoi, v.anh);
 };
+let toaMoi = null;
 HD.nccTra = async () => {
   const n = nccDangMo(), no = Number(n.no.con_no);
   const v = await hoi('Trả tiền – ' + n.ten, [
@@ -2395,6 +2415,265 @@ HD.toaHuy = async el => {
 HD.nccTraHuy = async el => {
   if (!await xacNhan('Huỷ khoản trả này? (dùng khi ghi nhầm)', 'Huỷ')) return;
   await rpc('huy_tra_ncc', { p_id: Number(el.dataset.id) }); thongBao('Đã huỷ', 'tot'); await taiLaiNcc();
+};
+
+// ── 9d. CHI TIẾT TOA: AI đọc ảnh toa → duyệt → lưu (giá vốn mọi món, cộng tồn món chủ lực) ──
+// S.toa = { n: NCC, toa: {id, tong_tien, so_toa, anh}, dong: [{goc, id, qc, qd, sl, gia, tt, chac, chon}], aiTong, gv: {mã: giá vốn hiện tại} }
+const soCt = t => (t.phieu_nhap_ct && t.phieu_nhap_ct[0] && t.phieu_nhap_ct[0].count) || 0;
+const toaTheoId = id => nccDangMo().toa.find(t => t.id === id);
+// Đọc tắt viết tay: "245" = 245.000đ, "9.5" = 9.500đ (giống quy ước gõ tiền trong app)
+const nghin = x => { x = Number(x) || 0; return x > 0 && x < 1000 ? Math.round(x * 1000) : Math.round(x); };
+function chuanDongToa(d) {
+  const h = timHang(d.id);
+  let qc = String(d.qc || '').trim() || (h ? h.dv : ''), qd = Number(d.qd) > 0 ? Number(d.qd) : 1;
+  if (h) {   // quy cách trùng quy cách đang bán → lấy đúng số quy đổi cửa hàng đã cài
+    const cu = h.gia.find(g => boDau(g.qc) === boDau(qc));
+    if (cu) { qc = cu.qc; qd = cu.qd; } else if (boDau(qc) === boDau(h.dv)) qd = 1;
+  }
+  const sl = Number(d.sl) || 0;
+  return { goc: d.goc || '', id: h ? h.id : '', qc, qd, sl, gia: nghin(d.gia), tt: nghin(d.tt), chac: h ? Number(d.chac) || 0 : 0, chon: !!h && sl > 0 };
+}
+const ttDong = d => Math.round(d.sl * d.gia);
+const lechDong = d => d.tt > 0 && Math.abs(ttDong(d) - d.tt) > Math.max(1000, d.tt * 0.01);   // SL × giá ≠ thành tiền in trên toa
+async function napGiaVon(ids) {   // giá vốn hiện tại để so "cũ → mới"
+  ids = [...new Set(ids.filter(Boolean))].filter(id => !(id in S.toa.gv)); if (!ids.length) return;
+  (await api('hang_hoa?select=id,gia_von&id=in.(' + ids.map(encodeURIComponent).join(',') + ')')).forEach(x => S.toa.gv[x.id] = Number(x.gia_von) || 0);
+}
+async function docToaAI(toa, files) {
+  if (!S.hang.length) throw new Error(S.hangLuc ? 'Chưa có mặt hàng nào – thêm hàng trước' : 'Chưa tải xong danh mục hàng');
+  const n = nccDangMo();
+  const kq = await cho('🤖 AI đang đọc toa… (20–60 giây)', async () => {
+    const blobs = files && files.length ? await Promise.all(files.slice(0, 4).map(nenAnh))
+                                        : await Promise.all((toa.anh || []).slice(0, 4).map(layAnhKho));
+    if (!blobs.length) throw new Error('Toa này chưa có ảnh – bấm 📎 thêm ảnh trước');
+    const anh = await Promise.all(blobs.map(sangBase64));
+    await tokenConHan();
+    // Danh mục gửi AI: mã|tên|đơn vị nhỏ nhất|quy cách:số đv
+    const ds = S.hang.map(h => h.id + '|' + h.ten + '|' + h.dv + '|' + h.gia.map(g => g.qc + ':' + so(g.qd)).join(',')).join('\n');
+    return goiAI({ token: phien.access_token, anh, ds }, 'docToa');
+  });
+  const dong = (kq.dong || []).map(chuanDongToa);
+  if (!dong.length) return thongBao('AI không thấy dòng hàng nào trên toa – chụp lại rõ, thẳng, đủ sáng', 'loi');
+  S.toa = { n, toa, dong, aiTong: nghin(kq.tong), gv: {} };
+  await napGiaVon(dong.map(d => d.id));
+  moBang('Duyệt toa ' + (toa.so_toa ? 'số ' + toa.so_toa : ngayNgan(toa.ngay || new Date().toISOString())), veDuyetToa);
+}
+HD.toaDocAI = el => docToaAI(toaTheoId(el.dataset.id)).catch(e => thongBao(e.message, 'loi'));
+// Toa không có ảnh / AI đọc sai nhiều: tự thêm từng dòng
+HD.toaGoTay = async el => {
+  const toa = toaTheoId(el.dataset.id); S.toa = { n: nccDangMo(), toa, dong: [], aiTong: 0, gv: {} };
+  moBang('Chi tiết toa ' + (toa.so_toa ? 'số ' + toa.so_toa : ngayNgan(toa.ngay)), veDuyetToa);
+};
+// Toa đã có chi tiết: xem lại, sửa (lưu lại không bị cộng tồn 2 lần)
+HD.toaXemCt = async el => {
+  const toa = toaTheoId(el.dataset.id);
+  const ct = await api('phieu_nhap_ct?select=*&phieu_nhap_id=eq.' + encodeURIComponent(toa.id) + '&order=id');
+  S.toa = { n: nccDangMo(), toa, sua: true, aiTong: 0, gv: {},
+    dong: ct.map(c => ({ goc: '', id: c.hang_hoa_id, ten: c.ten_hang, qc: c.quy_cach, qd: Number(c.so_luong_quy_doi), sl: Number(c.so_luong),
+      gia: Number(c.don_gia_nhap), tt: 0, chac: 1, chon: true, gvCu: c.gia_von_cu, congTon: c.cong_ton })) };
+  moBang('Chi tiết toa ' + (toa.so_toa ? 'số ' + toa.so_toa : ngayNgan(toa.ngay)), veDuyetToa);
+};
+function veDuyetToa() {
+  const t = S.toa, chon = t.dong.filter(d => d.chon && d.id && d.sl > 0), tong = chon.reduce((a, d) => a + ttDong(d), 0);
+  const tongToa = Number(t.toa.tong_tien) || 0, lech = tong - tongToa;
+  return `<div class="the">
+      <div class="tong-dong"><span>Tổng toa đã ghi</span><b class="tien">${tien(tongToa)}</b></div>
+      ${t.aiTong && t.aiTong !== tongToa ? `<div class="tong-dong"><span class="no">AI đọc tổng cuối toa</span><b class="tien no">${tien(t.aiTong)}</b></div>` : ''}
+      <div class="tong-dong"><span>Cộng ${chon.length} dòng đã chọn</span><b class="tien">${tien(tong)}</b></div>
+      <div class="tong-dong"><span></span>${Math.abs(lech) <= 1000 ? '<b style="color:var(--chinh)">Khớp tổng toa ✓</b>'
+        : `<b class="no">${lech > 0 ? 'Dư' : 'Thiếu'} ${tien(Math.abs(lech))} so với tổng toa</b>`}</div>
+      <p class="mo" style="margin:6px 0 0">✔ = lưu. Viền vàng = AI không chắc hoặc SL × giá ≠ thành tiền trên toa. Giá là giá nhập <b>1 quy cách trên toa</b>.
+        Lưu xong: <b>giá vốn</b> mọi món được cập nhật, món <b>⭐ chủ lực</b> được cộng tồn.</p></div>
+    ${t.dong.map((d, i) => { const h = d.id && timHang(d.id), yeu = !h || d.chac < 0.8 || lechDong(d);
+      const gvMoi = d.gia > 0 ? Math.round(d.gia / (d.qd || 1)) : 0, gvCu = d.id ? (d.gvCu != null && t.sua ? Number(d.gvCu) : t.gv[d.id]) : null;
+      return `<div class="the" style="padding:10px 12px;${yeu && d.chon ? 'border:1px solid var(--vang)' : ''}${d.chon ? '' : ';opacity:.6'}">
+        <div class="dong" style="gap:8px"><input type="checkbox" data-d="toaChon" data-idx="${i}" ${d.chon ? 'checked' : ''} style="width:20px;height:20px">
+          <span class="gian">${h ? `<b>${esc(h.ten)}</b>` : d.ten ? `<b>${esc(d.ten)}</b>` : '<span class="no">Chưa khớp món nào – bấm 🔍</span>'}
+            ${h && h.ton != null ? ' <span class="the-nhan xanh">⭐ cộng tồn</span>' : ''}
+            ${d.goc ? `<br><span class="mo">“${esc(d.goc)}”</span>` : ''}</span>
+          <button class="nut nho" data-a="toaTim" data-i="${i}">🔍</button></div>
+        <div class="dong" style="gap:6px;margin-top:6px">
+          <label style="flex:3"><span class="mo" style="font-size:11px">Quy cách</span><input class="o" value="${esc(d.qc)}" data-d="toaQc" data-idx="${i}" list="dl-qc-toa"></label>
+          <label style="flex:2"><span class="mo" style="font-size:11px">= ${h ? esc(h.dv) : 'đv'}</span><input class="o" style="text-align:center" value="${so(d.qd)}" inputmode="decimal" data-d="toaQd" data-idx="${i}"></label>
+          <label style="flex:2"><span class="mo" style="font-size:11px">SL</span><input class="o" style="text-align:center" value="${d.sl ? so(d.sl) : ''}" inputmode="decimal" data-d="toaSl" data-idx="${i}"></label>
+          <label style="flex:4"><span class="mo" style="font-size:11px">Giá nhập</span><input class="o" style="text-align:right" value="${d.gia ? so(d.gia) : ''}" inputmode="decimal" data-d="toaGia" data-idx="${i}"></label></div>
+        <div class="tong-dong mo" style="margin-top:4px"><span>${gvMoi && h ? `Giá vốn/${esc(h.dv)}: ${gvCu ? tien(gvCu) + ' → ' : ''}<b class="${gvCu && gvMoi > gvCu ? 'no' : ''}">${tien(gvMoi)}</b>${gvCu && gvMoi > gvCu ? ' ▲' + so(Math.round((gvMoi / gvCu - 1) * 1000) / 10) + '%' : ''}` : ''}</span>
+          <span class="tien">${tien(ttDong(d))}${lechDong(d) ? `<br><span class="no">toa ghi ${tien(d.tt)}</span>` : ''}</span></div></div>`; }).join('')}
+    <datalist id="dl-qc-toa">${['thùng', 'két', 'lốc', 'bao', 'hộp', 'gói', 'chai', 'lon', 'cây', 'chục', 'bịch', 'kg'].map(x => `<option value="${x}">`).join('')}</datalist>
+    <button class="nut" style="width:100%;margin-bottom:8px" data-a="toaThemDong">＋ Thêm dòng (món AI bỏ sót)</button>
+    <button class="nut chinh" style="width:100%" data-a="toaLuu" ${chon.length || t.sua ? '' : 'disabled'}>💾 Lưu ${chon.length} dòng</button>`;
+}
+const dongToa = el => S.toa.dong[el.dataset.idx];
+DOI.toaChon = el => { dongToa(el).chon = el.checked; veBang(); };
+DOI.toaQc = el => { const d = dongToa(el); d.qc = el.value.trim(); const h = timHang(d.id);
+  const cu = h && h.gia.find(g => boDau(g.qc) === boDau(d.qc)); if (cu) d.qd = cu.qd; else if (h && boDau(d.qc) === boDau(h.dv)) d.qd = 1; veBang(); };
+DOI.toaQd = el => { dongToa(el).qd = docSo(el.value) || 1; veBang(); };
+DOI.toaSl = el => { dongToa(el).sl = docSo(el.value); veBang(); };
+DOI.toaGia = el => { dongToa(el).gia = docTien(el.value); veBang(); };
+HD.toaTim = async el => {
+  const d = S.toa.dong[+el.dataset.i], id = await timChonMon('Món nào: “' + (d.goc || d.ten || '') + '”'); if (!id) return;
+  Object.assign(d, chuanDongToa({ goc: d.goc, id, qc: d.qc, qd: d.qd, sl: d.sl, gia: d.gia, tt: d.tt, chac: 1 }), { chon: d.sl > 0 });
+  await napGiaVon([id]); veBang();
+};
+HD.toaThemDong = async () => {
+  const id = await timChonMon('Thêm dòng – chọn món'); if (!id) return; const h = timHang(id);
+  const lon = h.gia.filter(g => g.qd > 1).sort((a, b) => b.qd - a.qd)[0];
+  S.toa.dong.push({ goc: '', id, qc: lon ? lon.qc : h.dv, qd: lon ? lon.qd : 1, sl: 1, gia: 0, tt: 0, chac: 1, chon: true });
+  await napGiaVon([id]); veBang();
+};
+HD.toaLuu = el => chay(el, 'Đang lưu…', async () => {
+  const t = S.toa, ds = t.dong.filter(d => d.chon && d.id && d.sl > 0);
+  const khongGia = ds.filter(d => !d.gia);
+  if (khongGia.length && !await xacNhan(khongGia.length + ' dòng chưa có giá nhập (VD ' + timHang(khongGia[0].id).ten + ') – các món này giữ giá vốn cũ. Vẫn lưu?', 'Vẫn lưu')) return;
+  const re = ds.filter(d => d.gia > 0 && d.gia < 1000);
+  if (re.length && !await xacNhan(re.length + ' giá nhập dưới 1.000đ (VD ' + timHang(re[0].id).ten + ' ' + tien(re[0].gia) + '). Đúng chưa?', 'Đúng, lưu')) return;
+  const kq = await rpc('luu_ct_toa', { p_id: t.toa.id, p_items: ds.map(d => ({ hang_hoa_id: d.id, quy_cach: d.qc, so_luong_quy_doi: d.qd, so_luong: d.sl, don_gia_nhap: d.gia })) });
+  S.bangs.pop(); veBang();
+  thongBao('Đã lưu ' + kq.so_dong + ' dòng · giá vốn cập nhật' + (kq.cong_ton ? ' · cộng tồn ' + kq.cong_ton + ' món chủ lực' : ''), 'tot');
+  taiHang(true).catch(() => {}); if (nccDangMo() && nccDangMo().id === t.n.id) await taiLaiNcc();
+  if (kq.tang && kq.tang.length) moGoiYGia(kq.tang);
+});
+
+// ── GIÁ NHẬP TĂNG → gợi ý giá bán mới (giữ nguyên % lãi cũ), duyệt rồi đổi hàng loạt ──
+// Làm tròn LÊN: dưới 10.000đ tròn 500đ, còn lại tròn 1.000đ
+const lamTronGia = x => { const b = x < 10000 ? 500 : 1000; return Math.ceil(x / b) * b; };
+const laiPT = (gia, qd, gv) => gia > 0 ? Math.round((gia / qd - gv) / (gia / qd) * 1000) / 10 : 0;   // % lãi trên giá bán
+function moGoiYGia(tang) {
+  S.gy = tang.map(t => Object.assign({}, t, { gv_cu: Number(t.gv_cu), gv_moi: Number(t.gv_moi),
+    // Tăng quá 30% thường do giá vốn cũ nhập sai → không tick sẵn, để bạn xem lại
+    manh: Number(t.gv_moi) > Number(t.gv_cu) * 1.3,
+    dong: t.gia.map(g => ({ qc: g.qc, qd: Number(g.qd), cu: Number(g.g), moi: lamTronGia(Number(g.g) * Number(t.gv_moi) / Number(t.gv_cu)),
+      chon: Number(t.gv_moi) <= Number(t.gv_cu) * 1.3 })) }));
+  moBang('Giá nhập tăng – ' + S.gy.length + ' món', veGoiYGia);
+}
+function veGoiYGia() {
+  const n = S.gy.reduce((a, t) => a + t.dong.filter(d => d.chon && d.moi > 0).length, 0);
+  return `<p class="mo">Giá nhập các món dưới đây <b class="no">tăng</b>. App gợi ý giá bán mới giữ nguyên % lãi cũ (làm tròn lên). Sửa số nếu muốn, bỏ ✔ dòng giữ giá cũ.</p>
+    ${S.gy.map((t, i) => `<div class="the" style="padding:10px 12px"><b>${esc(t.ten)}</b><br>
+      <span class="mo">Giá vốn/${esc(t.dv)}: ${tien(t.gv_cu)} → <b class="no">${tien(t.gv_moi)}</b> ▲${so(Math.round((t.gv_moi / t.gv_cu - 1) * 1000) / 10)}%</span>
+      ${t.manh ? '<br><span class="the-nhan vang">Tăng mạnh – kiểm lại giá nhập / quy cách trên toa (hoặc giá vốn cũ nhập sai) rồi mới tick đổi</span>' : ''}
+      ${t.dong.length ? t.dong.map((d, j) => `<div class="dong" style="gap:8px;margin-top:8px">
+        <input type="checkbox" data-d="gyChon" data-i="${i}" data-j="${j}" ${d.chon ? 'checked' : ''} style="width:20px;height:20px">
+        <span class="gian">${esc(d.qc)}${d.qd > 1 ? ` <span class="mo">(${so(d.qd)})</span>` : ''}<br>
+          <span class="mo">đang ${tien(d.cu)} · lãi ${so(laiPT(d.cu, d.qd, t.gv_moi))}%</span></span>
+        <span style="width:42%"><input class="o" style="text-align:right" value="${so(d.moi)}" inputmode="decimal" data-d="gyGia" data-i="${i}" data-j="${j}">
+          <span class="mo" style="font-size:11px">lãi ${so(laiPT(d.moi, d.qd, t.gv_moi))}% (cũ ${so(laiPT(d.cu, d.qd, t.gv_cu))}%)</span></span></div>`).join('')
+        : '<p class="mo" style="margin:6px 0 0">Món này chưa có giá bán.</p>'}</div>`).join('')}
+    <div class="hang-nut"><button class="nut" data-a="dongBang">Để sau</button>
+      <button class="nut chinh" data-a="gyLuu" ${n ? '' : 'disabled'}>Đổi ${n} giá bán</button></div>`;
+}
+DOI.gyChon = el => { S.gy[el.dataset.i].dong[el.dataset.j].chon = el.checked; veBang(); };
+DOI.gyGia = el => { S.gy[el.dataset.i].dong[el.dataset.j].moi = docTien(el.value); veBang(); };
+HD.gyLuu = el => chay(el, 'Đang đổi giá…', async () => {
+  const ds = []; S.gy.forEach(t => t.dong.forEach(d => { if (d.chon && d.moi > 0 && d.moi !== d.cu) ds.push({ hang_hoa_id: t.id, quy_cach: d.qc, gia_ban: d.moi }); }));
+  const n = ds.length ? await rpc('doi_gia_ban', { p: ds }) : 0;
+  S.bangs.pop(); veBang(); await taiHang(true);
+  thongBao('Đã đổi ' + n + ' giá bán', 'tot');
+});
+
+// ── 9e. KIỂM KHO HÀNG LOẠT (món chủ lực) ─────────────────────────────
+// Gõ tự do: "5t7" / "5 thùng 7" = 5 thùng + 7 lẻ · "3l" = 3 lốc · "127" = 127 đơn vị nhỏ nhất · "2,5" = 2,5 kg…
+// Trả về {sl} (tính ra đơn vị nhỏ nhất) hoặc {loi}
+function docSoDem(chu, h) {
+  const s = boDau(chu).replace(/,/g, '.').replace(/\+/g, ' ').trim();
+  if (!s) return null;
+  if (!/^(\s*\d+(\.\d+)?\s*[a-z]*\s*)+$/.test(s)) return { loi: 'gõ kiểu 5t7, 5 thùng 7 hoặc 127' };
+  const qcs = [{ ten: boDau(h.dv), qd: 1 }].concat(h.gia.map(g => ({ ten: boDau(g.qc), qd: Number(g.qd) })));
+  let tong = 0; const re = /(\d+(?:\.\d+)?)\s*([a-z]*)/g; let m;
+  while ((m = re.exec(s))) {
+    const sl = Number(m[1]), u = m[2]; let qd = 1;
+    if (u) {
+      let k = qcs.filter(q => q.ten.startsWith(u));
+      if ((u === 't' || u === 'th') && k.some(q => q.ten.startsWith('thung'))) k = k.filter(q => q.ten.startsWith('thung'));
+      const cacQd = [...new Set(k.map(q => q.qd))];
+      if (!cacQd.length) return { loi: '"' + u + '" không phải quy cách của món này (' + qcs.map(q => q.ten).join(', ') + ')' };
+      if (cacQd.length > 1) return { loi: '"' + u + '" là ' + k.map(q => q.ten).join(' hay ') + '? gõ rõ hơn' };
+      qd = cacQd[0];
+    }
+    tong += sl * qd;
+  }
+  return { sl: +tong.toFixed(3) };
+}
+// 127 lon → "5 thùng 7 lon" cho dễ hình dung
+function tonChu(sl, h) {
+  const lon = h.gia.filter(g => g.qd > 1).sort((a, b) => b.qd - a.qd)[0];
+  if (!lon || sl < lon.qd) return so(sl) + ' ' + h.dv;
+  const n = Math.floor(sl / lon.qd), du = +(sl - n * lon.qd).toFixed(3);
+  return n + ' ' + lon.qc + (du ? ' ' + so(du) + ' ' + h.dv : '');
+}
+const LOC_KK = { chua: 'Chưa đếm', cu: 'Lâu chưa đếm', tat: 'Tất cả', het: 'Sắp hết' };
+HD.kkMo = async el => {
+  const ds = await chay(el, '…', () => rpc('lay_kiem_kho'));
+  const nhap = doc('bh_kiem_nhap') || {};   // số đang gõ dở (tắt app không mất)
+  S.kk = { tim: '', loc: 'tat', nhap, ds: ds.map(x => { const h = timHang(x.id); return h && Object.assign({}, x, { h, ton: Number(x.ton), min: x.min == null ? null : Number(x.min), gv: Number(x.gv) || 0 }); }).filter(Boolean) };
+  if (S.kk.ds.some(x => !x.dem)) S.kk.loc = 'chua';
+  moBang('Kiểm kho món chủ lực', veKiemKho);
+};
+const kkDs = () => { const k = S.kk, q = boDau(k.tim).split(/\s+/).filter(Boolean);
+  return k.ds.filter(x => (k.loc === 'tat' || (k.loc === 'chua' && !x.dem) || (k.loc === 'cu' && x.dem && soNgayTruoc(x.dem) >= 30)
+      || (k.loc === 'het' && x.ton <= (x.min || 0))) && q.every(t => x.h._t.includes(t))); };
+function veKiemKho() {
+  const k = S.kk, ds = kkDs(), soGo = Object.keys(k.nhap).filter(id => k.ds.some(x => x.id === id)).length;
+  if (!k.ds.length) return `<div class="trong">Chưa có món chủ lực nào.<br><br>Vào tab <b>Hàng</b> → bấm ☑ Chọn → chọn món → <b>⭐ Theo dõi tồn</b>,
+    hoặc mở 1 món → <b>📋 Bắt đầu theo dõi tồn</b>.</div>`;
+  return `<p class="mo">Đếm thực tế rồi gõ số: <b>5t7</b> = 5 thùng 7 lẻ · <b>3loc</b> = 3 lốc · <b>127</b> = 127 đơn vị lẻ. Gõ xong bấm Enter sang món kế. Chưa lưu thì số gõ vẫn giữ trên máy.</p>
+    <div class="o-tim"><input class="o" data-i="kkTim" placeholder="Tìm trong ${k.ds.length} món chủ lực…" value="${esc(k.tim)}" autocomplete="off"></div>
+    <div class="loc">${Object.entries(LOC_KK).map(([c, t]) => `<button data-a="kkLoc" data-k="${c}" class="${k.loc === c ? 'chon' : ''}">${t} (${
+      k.ds.filter(x => c === 'tat' || (c === 'chua' && !x.dem) || (c === 'cu' && x.dem && soNgayTruoc(x.dem) >= 30) || (c === 'het' && x.ton <= (x.min || 0))).length})</button>`).join('')}</div>
+    <div id="kk-ds">${veDsKiemKho(ds)}</div>
+    <button class="nut chinh" style="width:100%;margin-top:8px" data-a="kkLuu" id="kk-luu" ${soGo ? '' : 'disabled'}>💾 Lưu ${soGo} món đã đếm</button>`;
+}
+function veDsKiemKho(ds) {
+  return `<div class="the ds">${ds.slice(0, 200).map(x => { const h = x.h, go = S.kk.nhap[x.id] || '';
+    return `<div class="muc"><div class="dong" style="gap:8px"><div class="gian"><b>${esc(h.ten)}</b><br>
+        <span class="mo">Máy tính: <b class="${x.ton <= (x.min || 0) ? 'no' : ''}">${esc(tonChu(x.ton, h))}</b> · ${x.dem ? 'đếm ' + ngayNgan(x.dem) + (x.nguoi ? ' (' + esc(x.nguoi) + ')' : '') : '<span class="no">chưa đếm</span>'}</span></div>
+      <input class="o" style="width:30%;text-align:center" value="${esc(go)}" placeholder="đếm được" data-i="kkGo" data-id="${x.id}" data-enter="kkKe" autocomplete="off" enterkeyhint="next"></div>
+      <div class="goi-y" style="text-align:right" id="kk-${x.id}">${xemDem(x, go)}</div></div>`; }).join('') || '<div class="trong">Không có món nào</div>'}</div>
+    ${ds.length > 200 ? `<p class="mo">Đang hiện 200/${ds.length} món – gõ tìm để thấy món khác.</p>` : ''}`;
+}
+// Dòng xem trước dưới ô: "= 127 lon · khớp ✓" / "thiếu 7 lon (−63.000đ)"
+function xemDem(x, go) {
+  const r = docSoDem(go, x.h); if (!r) return '';
+  if (r.loi) return `<span class="no">⚠ ${esc(r.loi)}</span>`;
+  const lech = +(r.sl - x.ton).toFixed(3);
+  return '= ' + esc(tonChu(r.sl, x.h)) + ' · ' + (lech === 0 ? '<b>khớp ✓</b>'
+    : `<b class="${lech < 0 ? 'no' : ''}" style="${lech > 0 ? 'color:var(--vang)' : ''}">${lech < 0 ? 'thiếu' : 'thừa'} ${so(Math.abs(lech))} ${esc(x.h.dv)}${x.gv ? ' (' + (lech < 0 ? '−' : '+') + tien(Math.abs(lech) * x.gv) + ')' : ''}</b>`);
+}
+GO.kkTim = el => { S.kk.tim = el.value; $('#kk-ds').innerHTML = veDsKiemKho(kkDs()); };
+HD.kkLoc = el => { S.kk.loc = el.dataset.k; veBang(); };
+GO.kkGo = el => {
+  const id = el.dataset.id, x = S.kk.ds.find(y => y.id === id), v = el.value.trim();
+  if (v) S.kk.nhap[id] = v; else delete S.kk.nhap[id];
+  luu('bh_kiem_nhap', S.kk.nhap);
+  $('#kk-' + id).innerHTML = xemDem(x, v);
+  const n = Object.keys(S.kk.nhap).length, b = $('#kk-luu'); if (b) { b.disabled = !n; b.textContent = '💾 Lưu ' + n + ' món đã đếm'; }
+};
+HD.kkKe = el => { const o = [...document.querySelectorAll('[data-i=kkGo]')], i = o.indexOf(el); if (o[i + 1]) o[i + 1].focus(); else el.blur(); };
+HD.kkLuu = el => chay(el, 'Đang lưu…', async () => {
+  const k = S.kk, items = [], loi = [], ketQua = [];
+  Object.entries(k.nhap).forEach(([id, go]) => { const x = k.ds.find(y => y.id === id); if (!x) return;
+    const r = docSoDem(go, x.h); if (!r) return; if (r.loi) return loi.push(x.h.ten);
+    items.push({ hang_hoa_id: id, ton_kho: r.sl }); ketQua.push({ x, sl: r.sl, lech: +(r.sl - x.ton).toFixed(3) }); });
+  if (loi.length) return thongBao('Gõ chưa đúng ở: ' + loi.slice(0, 3).join(', ') + (loi.length > 3 ? '…' : ''), 'loi');
+  if (!items.length) return;
+  await rpc('kiem_kho_cap_nhat', { p: { items } });
+  k.nhap = {}; xoa('bh_kiem_nhap'); S.bangs.pop(); veBang(); taiHang(true).catch(() => {});
+  const lech = ketQua.filter(r => r.lech !== 0).sort((a, b) => a.lech * a.x.gv - b.lech * b.x.gv);
+  const tienLech = lech.reduce((a, r) => a + r.lech * r.x.gv, 0);
+  await hoi('Đã lưu kiểm kho', [], 'OK', `Đếm <b>${ketQua.length}</b> món: <b style="color:var(--chinh)">${ketQua.length - lech.length} khớp</b>, <b class="${lech.length ? 'no' : ''}">${lech.length} lệch</b>.
+    ${lech.length ? `<br>Tiền hàng lệch (theo giá vốn): <b class="${tienLech < 0 ? 'no' : ''}">${tienLech < 0 ? '−' : '+'}${tien(Math.abs(tienLech))}</b>
+    <div class="the ds" style="margin-top:8px">${lech.map(r => `<div class="muc dong"><span class="gian">${esc(r.x.h.ten)}<br>
+      <span class="mo">máy ${esc(tonChu(r.x.ton, r.x.h))} → đếm ${esc(tonChu(r.sl, r.x.h))}</span></span>
+      <b class="${r.lech < 0 ? 'no' : ''}">${r.lech > 0 ? '+' : ''}${so(r.lech)} ${esc(r.x.h.dv)}</b></div>`).join('')}</div>` : ''}`);
+  if (S.tab === 'hang') veDsHang();
+});
+// Bật / tắt theo dõi tồn hàng loạt (thanh chọn nhiều món ở tab Hàng)
+HD.hangTheoDoiTon = async el => {
+  const ids = [...S.hChon], bat = el.dataset.k === '1';
+  if (!bat && !await xacNhan('Thôi theo dõi tồn ' + ids.length + ' món? (xoá số tồn hiện tại của các món này)', 'Thôi theo dõi')) return;
+  const n = await cho('Đang lưu…', () => rpc('dat_theo_doi_ton', { p_ids: ids, p_bat: bat }));
+  S.hChon = new Set(); await taiHang(true); veHang();
+  thongBao(bat ? '⭐ Đã thêm ' + n + ' món chủ lực – vào 📋 Kiểm kho để đếm số thực tế' : 'Đã thôi theo dõi tồn ' + n + ' món', 'tot');
 };
 
 // Thêm / sửa nhà cung cấp (chỉ chủ)
