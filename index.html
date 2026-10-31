@@ -636,7 +636,7 @@ function veBan() {
     <button class="chon-khach" data-a="chonKhach"><span>👤</span><span class="gian">Khách: <b>${esc(tenKhachGio())}</b>
       ${kh && kh.con_no > 0 ? `<br><span class="no">Đang nợ ${tien(kh.con_no)}</span>` : ''}</span><span class="mo">Đổi ▾</span></button>
     <div class="o-tim dong"><input class="o" id="o-tim" type="search" data-i="tim" placeholder="Tìm hàng… (vd: sua th, tiger)" value="${esc(S.tim)}" autocomplete="off">
-      <button class="nut" style="white-space:nowrap" data-a="aiMo" title="Dán tin nhắn Zalo, AI tự lên đơn">🤖 Zalo</button></div>
+      <button class="nut" style="white-space:nowrap" data-a="aiMo" title="Dán tin nhắn hoặc ảnh Zalo, AI tự lên đơn">🤖 Zalo</button></div>
     <div id="ket-qua"></div>`;
   veKetQua(); veDonTam();
   if (Date.now() - S.hangLuc > CFG.phutLamMoiHang * 60e3) taiHang(true).catch(() => {});
@@ -664,12 +664,12 @@ function soTrongGio(id, qc) {
 }
 function veMotHang(h) {
   const chips = h.gia.map(g => { const n = soTrongGio(h.id, g.qc);
-    return `<button class="chip" data-a="them" data-id="${h.id}" data-qc="${esc(g.qc)}">${esc(g.qc)}${g.qd > 1 ? ` <small>(${so(g.qd)})</small>` : ''} <b>${so(g.g / 1000)}k</b>${n ? `<span class="dem">${so(n)}</span>` : ''}</button>`; }).join('');
+    return `<button class="chip" data-a="them" data-id="${esc(h.id)}" data-qc="${esc(g.qc)}">${esc(g.qc)}${g.qd > 1 ? ` <small>(${so(g.qd)})</small>` : ''} <b>${so(g.g / 1000)}k</b>${n ? `<span class="dem">${so(n)}</span>` : ''}</button>`; }).join('');
   return `<div class="hh"><div class="dong"><div class="gian"><div class="hh-ten">${esc(h.ten)}</div>
       <div class="mo">${esc(h.dv)}${h.dm ? ' · ' + esc(h.dm) : ''}${h.ton != null ? ` · tồn ${so(h.ton)}` : ''}</div></div>
-      ${laChu() ? `<button class="nut-sua" data-a="suaHang" data-id="${h.id}">✎</button>` : ''}</div>
+      ${laChu() ? `<button class="nut-sua" data-a="suaHang" data-id="${esc(h.id)}">✎</button>` : ''}</div>
     <div class="chips">${chips || '<span class="the-nhan vang">Chưa có giá</span>'}
-      <button class="chip ${h.gia.length ? 'phu' : 'vang'}" data-a="themGiaTay" data-id="${h.id}">${h.gia.length ? '+ khác' : '+ Nhập giá'}</button></div></div>`;
+      <button class="chip ${h.gia.length ? 'phu' : 'vang'}" data-a="themGiaTay" data-id="${esc(h.id)}">${h.gia.length ? '+ khác' : '+ Nhập giá'}</button></div></div>`;
 }
 function veKetQua() {
   const o = $('#ket-qua'); if (!o) return;
@@ -861,7 +861,7 @@ function veChonKhach() {
 }
 function veDsChonKhach(ds) {
   return `<div class="muc dong" data-a="datKhach" data-id=""><span class="gian"><b>Khách lẻ</b> <span class="mo">(không ghi tên)</span></span></div>` +
-    ds.map(k => `<div class="muc dong" data-a="datKhach" data-id="${k.id}"><span class="gian"><b>${esc(k.ten)}</b><br><span class="mo">${esc(k.sdt || '')} ${esc(k.id)}</span></span>
+    ds.map(k => `<div class="muc dong" data-a="datKhach" data-id="${esc(k.id)}"><span class="gian"><b>${esc(k.ten)}</b><br><span class="mo">${esc(k.sdt || '')} ${esc(k.id)}</span></span>
       ${k.con_no > 0 ? `<span class="no tien">${tien(k.con_no)}</span>` : ''}</div>`).join('');
 }
 GO.timKhachGio = el => {
@@ -967,8 +967,8 @@ HD.xemDonCho = () => moBang('Đơn chờ gửi', () => `<p class="mo">Các đơn
   <div class="the ds">${S.donCho.map(x => `<div class="muc"><div class="dong"><span class="gian"><b>${esc(x.ten)}</b> · ${x.so} món<br>
       <span class="mo">lưu lúc ${ngayGio(new Date(x.luc).toISOString())}</span>${x.loi ? `<br><span class="no">⚠ ${esc(x.loi)}</span>` : ''}</span>
       <b class="tien">${tien(x.tong)}</b></div>
-    <div class="hang-nut" style="margin-top:6px"><button class="nut nho" data-a="donChoVeGio" data-ma="${x.ma}">↩ Đưa về giỏ để sửa</button>
-      <button class="nut nho do" data-a="donChoXoa" data-ma="${x.ma}">🗑 Bỏ đơn</button></div></div>`).join('') || '<div class="trong">Không còn đơn nào chờ gửi ✓</div>'}</div>
+    <div class="hang-nut" style="margin-top:6px"><button class="nut nho" data-a="donChoVeGio" data-ma="${esc(x.ma)}">↩ Đưa về giỏ để sửa</button>
+      <button class="nut nho do" data-a="donChoXoa" data-ma="${esc(x.ma)}">🗑 Bỏ đơn</button></div></div>`).join('') || '<div class="trong">Không còn đơn nào chờ gửi ✓</div>'}</div>
   ${S.donCho.length ? '<button class="nut chinh" style="width:100%" data-a="donChoGuiNgay">📶 Gửi lại ngay</button>' : ''}`);
 HD.donChoGuiNgay = el => chay(el, 'Đang gửi…', () => guiDonCho(true));
 HD.donChoVeGio = el => {
@@ -986,25 +986,30 @@ HD.donChoXoa = async el => {
   S.donCho = S.donCho.filter(y => y.ma !== x.ma); luuDonCho(); veBang();
 };
 
-// ── 6b. DÁN TIN NHẮN ZALO → AI LÊN ĐƠN ──────────────────────────────
-// Luồng: dán tin → gửi (tin + danh mục hàng) cho Apps Script → Apps Script hỏi Gemini → trả về từng món
+// ── 6b. DÁN TIN NHẮN / ẢNH ZALO → AI LÊN ĐƠN ────────────────────────
+// Luồng: dán tin và/hoặc chọn ảnh (chụp màn hình Zalo, giấy ghi đơn, hình sản phẩm khách gửi – tối đa 4)
+//        → gửi (tin + ảnh đã nén + danh mục hàng) cho Apps Script → Apps Script hỏi Gemini → trả về từng món
 //        → màn hình DUYỆT (sửa món / quy cách / số lượng) → bấm Thêm vào đơn.
 // AI chỉ GỢI Ý, không tự lưu đơn. Key Gemini nằm trong Apps Script, không nằm trong app.
-HD.aiMo = () => { S.ai = { tin: '' }; moBang('🤖 Lên đơn từ tin nhắn', veAI); setTimeout(() => { const t = $('#ai-tin'); if (t) t.focus(); }, 60); };
+const AI_TOI_DA_ANH = 4;
+HD.aiMo = () => { S.ai = { tin: '', anh: [] }; moBang('🤖 Lên đơn từ tin nhắn / ảnh', veAI); setTimeout(() => { const t = $('#ai-tin'); if (t) t.focus(); }, 60); };
 function veAI() {
   const a = S.ai;
-  if (!a.dong) return `<p class="mo">Copy tin nhắn đặt hàng trong Zalo → dán vào ô dưới. Viết tắt, không dấu, nhiều món 1 dòng đều được.</p>
-    <textarea class="o" id="ai-tin" rows="8" data-i="aiTin" placeholder="VD:&#10;chị Hoa lấy 2 thùng fami bịch&#10;sg the 1 chục, tiger bạc 1 thùng&#10;giao trước 5h">${esc(a.tin)}</textarea>
+  if (!a.dong) return `<p class="mo">Dán tin nhắn đặt hàng, <b>hoặc</b> chọn ảnh: chụp màn hình Zalo, giấy ghi đơn, hình sản phẩm khách gửi. Có cả hai cũng được.</p>
+    <textarea class="o" id="ai-tin" rows="6" data-i="aiTin" placeholder="VD:&#10;chị Hoa lấy 2 thùng fami bịch&#10;sg the 1 chục, tiger bạc 1 thùng&#10;giao trước 5h">${esc(a.tin)}</textarea>
+    ${veAnhAI(true)}
     <div class="hang-nut"><button class="nut" data-a="aiDan">📋 Dán</button>
-      <button class="nut chinh" style="flex:2" data-a="aiDoc">🤖 Đọc tin nhắn</button></div>`;
+      ${a.anh.length < AI_TOI_DA_ANH ? `<label class="nut" style="display:flex;align-items:center;justify-content:center">📷 Ảnh<input type="file" accept="image/*" multiple data-d="aiAnh" style="display:none"></label>` : ''}
+      <button class="nut chinh" style="flex:2" data-a="aiDoc">🤖 Đọc đơn</button></div>`;
   const chon = a.dong.filter(d => d.chon && d.id && d.qc).length;
-  return `<div class="the"><span class="mo">Tin nhắn:</span><div style="white-space:pre-wrap;font-size:14px">${esc(a.tin)}</div></div>
+  return `${a.tin ? `<div class="the"><span class="mo">Tin nhắn:</span><div style="white-space:pre-wrap;font-size:14px">${esc(a.tin)}</div></div>` : ''}
+    ${veAnhAI(false)}
     ${a.kh ? `<label class="dong the" style="gap:8px"><input type="checkbox" data-d="aiKh" ${a.kh.chon ? 'checked' : ''} style="width:20px;height:20px">
       <span class="gian">Khách: <b>${esc(a.kh.ten)}</b> ${a.kh.id ? `<span class="mo">${esc(a.kh.sdt || a.kh.id)}</span>` : '<span class="the-nhan vang">khách mới</span>'}</span></label>` : ''}
     ${a.dong.map((d, i) => veDongAI(d, i)).join('')}
     ${a.ghi_chu ? `<label class="dong the" style="gap:8px"><input type="checkbox" data-d="aiGc" ${a.gcChon ? 'checked' : ''} style="width:20px;height:20px">
       <span class="gian">Ghi chú: ${esc(a.ghi_chu)}</span></label>` : ''}
-    <div class="hang-nut"><button class="nut" data-a="aiLai">↺ Dán tin khác</button>
+    <div class="hang-nut"><button class="nut" data-a="aiLai">↺ Đơn khác</button>
       <button class="nut chinh" style="flex:2" data-a="aiThem" ${chon ? '' : 'disabled'}>Thêm ${chon} món vào đơn</button></div>
     <p class="mo">Dòng vàng = AI không chắc, xem kỹ. Đơn đang lên dở (nếu có) vẫn giữ nguyên, món sẽ vào 1 đơn mới.</p>`;
 }
@@ -1016,7 +1021,7 @@ function veDongAI(d, i) {
   return `<div class="the" style="${yeu ? 'border:1px solid var(--vang)' : ''}">
     <div class="dong" style="gap:8px"><input type="checkbox" data-d="aiChon" data-idx="${i}" ${d.chon ? 'checked' : ''} style="width:20px;height:20px">
       <span class="gian mo">“${esc(d.goc)}”</span>${yeu ? '<span class="the-nhan vang">xem lại</span>' : ''}</div>
-    ${ids.length ? `<select class="o" style="margin-top:6px" data-d="aiHang" data-idx="${i}">${ids.map(x => `<option value="${x}" ${x === d.id ? 'selected' : ''}>${esc(timHang(x).ten)}</option>`).join('')}</select>`
+    ${ids.length ? `<select class="o" style="margin-top:6px" data-d="aiHang" data-idx="${i}">${ids.map(x => `<option value="${esc(x)}" ${x === d.id ? 'selected' : ''}>${esc(timHang(x).ten)}</option>`).join('')}</select>`
       : '<p class="no" style="margin:6px 0">Không tìm thấy món này trong danh mục</p>'}
     <div class="dong" style="margin-top:6px;gap:6px">
       ${h ? (h.gia.length ? `<select class="o" style="flex:2" data-d="aiQC" data-idx="${i}">${h.gia.map(g => `<option value="${esc(g.qc)}" ${g.qc === d.qc ? 'selected' : ''}>${esc(g.qc)} · ${tien(g.g)}</option>`).join('')}</select>`
@@ -1024,12 +1029,26 @@ function veDongAI(d, i) {
       <input class="o" style="flex:1;text-align:center" inputmode="decimal" value="${so(d.sl)}" data-d="aiSL" data-idx="${i}">
       <button class="nut nho" data-a="aiTim" data-i="${i}">🔍</button></div></div>`;
 }
+// Ảnh đã chọn: hiện ảnh nhỏ (bấm xem to); lúc chưa đọc thì có nút ✕ bỏ từng ảnh
+function veAnhAI(choBo) {
+  const a = S.ai; if (!a.anh.length) return '';
+  return `<div class="anh-ds" style="margin:8px 0">${a.anh.map((x, i) => `<span class="anh-nho" style="position:relative">
+    <a href="${x.url}" target="_blank"><img src="${x.url}" alt=""></a>${choBo ? `<button class="nut nho do" data-a="aiBoAnh" data-i="${i}"
+      style="position:absolute;top:-6px;right:-6px;min-width:0;padding:0 7px;border-radius:50%">✕</button>` : ''}</span>`).join('')}</div>`;
+}
+DOI.aiAnh = el => {
+  const a = S.ai, con = AI_TOI_DA_ANH - a.anh.length, ds = Array.from(el.files || []);
+  ds.slice(0, con).forEach(f => a.anh.push({ f, url: URL.createObjectURL(f) }));
+  if (ds.length > con) thongBao('Tối đa ' + AI_TOI_DA_ANH + ' ảnh mỗi đơn – đã bỏ bớt ' + (ds.length - con) + ' ảnh', 'loi');
+  veBang();
+};
+HD.aiBoAnh = el => { const x = S.ai.anh.splice(+el.dataset.i, 1)[0]; if (x) URL.revokeObjectURL(x.url); veBang(); };
 GO.aiTin = el => { S.ai.tin = el.value; };
 HD.aiDan = async () => {
   try { const t = await navigator.clipboard.readText(); if (t) { S.ai.tin = t; veBang(); } }
   catch (e) { thongBao('Máy không cho đọc bộ nhớ tạm – nhấn giữ vào ô để Dán', 'loi'); }
 };
-HD.aiLai = () => { S.ai = { tin: '' }; veBang(); };
+HD.aiLai = () => { (S.ai.anh || []).forEach(x => URL.revokeObjectURL(x.url)); S.ai = { tin: '', anh: [] }; veBang(); };
 DOI.aiChon = el => { S.ai.dong[el.dataset.idx].chon = el.checked; veBang(); };
 DOI.aiKh = el => { S.ai.kh.chon = el.checked; };
 DOI.aiGc = el => { S.ai.gcChon = el.checked; };
@@ -1065,12 +1084,17 @@ function goiAI(goi, ham) {
     .then(j => { if (j.loi) throw new Error(j.loi); return j; }, e => { throw new Error(e.message && /JSON/.test(e.message) ? 'Apps Script trả về lỗi' : dichLoi('Failed to fetch')); });
 }
 HD.aiDoc = async el => {
-  const tin = (S.ai.tin || '').trim(); if (!tin) return thongBao('Chưa dán tin nhắn', 'loi');
+  const tin = (S.ai.tin || '').trim(), dsAnh = S.ai.anh || [];
+  if (!tin && !dsAnh.length) return thongBao('Chưa dán tin nhắn hoặc chọn ảnh', 'loi');
   if (!S.hang.length) return thongBao(S.hangLuc ? 'Chưa có mặt hàng nào – thêm hàng trước' : 'Chưa tải xong danh mục hàng', 'loi');
   if (phien.expires_at - 120 < Date.now() / 1000) await lamMoiPhien();   // Apps Script cần token còn hạn để kiểm tra
   // Danh mục gửi cho AI: mã|tên|các quy cách có giá
   const ds = S.hang.map(h => h.id + '|' + h.ten + '|' + (h.gia.map(g => g.qc).join(',') || h.dv)).join('\n');
-  const kq = await chay(el, '🤖 Đang đọc… (5–15 giây)', () => goiAI({ token: phien.access_token, tin, ds }));
+  // Ảnh: nén (cạnh dài ≤ 2000px) rồi đổi base64 – chữ trong ảnh chụp màn hình vẫn rõ, gửi nhanh
+  const kq = await chay(el, dsAnh.length ? '🤖 Đang đọc ảnh… (10–40 giây)' : '🤖 Đang đọc… (5–15 giây)', async () => {
+    const anh = dsAnh.length ? await Promise.all(dsAnh.map(x => nenAnh(x.f).then(sangBase64))) : undefined;
+    return goiAI({ token: phien.access_token, tin, anh, ds });
+  });
   const a = S.ai;
   a.dong = (kq.dong || []).map(d => {
     const h = timHang(d.id);
@@ -1085,7 +1109,7 @@ HD.aiDoc = async el => {
     const ds3 = ds2.length ? ds2 : S.khach.filter(k => !k.khoa && k.id !== 'KHLE' && (boDau(k.ten).includes(q) || q.includes(boDau(k.ten))));
     a.kh = ds3.length === 1 ? { id: ds3[0].id, ten: ds3[0].ten, sdt: ds3[0].sdt, chon: true } : { id: null, ten, chon: false };
   }
-  if (!a.dong.length) { a.dong = null; return thongBao('AI không thấy món hàng nào trong tin nhắn', 'loi'); }
+  if (!a.dong.length) { a.dong = null; return thongBao('AI không thấy món hàng nào trong ' + (dsAnh.length ? 'tin nhắn / ảnh' : 'tin nhắn'), 'loi'); }
   veBang();
 };
 HD.aiThem = () => {
@@ -1141,9 +1165,9 @@ function nhanDon(d) {
   if (d.hinh_thuc === 'Chuyển khoản') return '<span class="the-nhan vang">Chờ CK</span>';
   return '<span class="the-nhan do">Nợ</span>';
 }
-const veDongDon = d => `<div class="muc dong" data-a="moDon" data-id="${d.id}">
+const veDongDon = d => `<div class="muc dong" data-a="moDon" data-id="${esc(d.id)}">
   <div class="gian"><b>${esc(d.ten_khach)}</b> ${nhanDon(d)}${d.da_giao === false && d.trang_thai !== 'huy' ? ' <span class="the-nhan vang">🚚 chờ giao</span>' : ''}
-    <br><span class="mo">${d.id} · ${ngayGio(d.ngay)}${d.nguoi_tao ? ' · ' + esc(d.nguoi_tao) : ''}</span>
+    <br><span class="mo">${esc(d.id)} · ${ngayGio(d.ngay)}${d.nguoi_tao ? ' · ' + esc(d.nguoi_tao) : ''}</span>
     ${d.da_giao === false && d.ghi_chu ? `<br><span class="mo">📝 ${esc(d.ghi_chu)}</span>` : ''}</div>
   <div style="text-align:right"><b class="tien" ${d.trang_thai === 'huy' ? 'style="text-decoration:line-through;color:var(--phu)"' : ''}>${tien(d.tong_cong)}</b>
   ${Number(d.con_no) > 0 && Number(d.con_no) < Number(d.tong_cong) ? `<br><span class="no tien">còn ${tien(d.con_no)}</span>` : ''}</div></div>`;
@@ -1192,9 +1216,9 @@ function veChiTietDon(x) {
         <div class="tong-dong"><span>Chiết khấu</span><span class="tien">−${tien(d.chiet_khau)}</span></div>` : ''}
       <div class="tong-dong lon"><span>Tổng cộng</span><span class="tien">${tien(d.tong_cong)}</span></div>
       ${tt.map(p => `<div class="tong-dong mo"><span>✓ ${esc(p.hinh_thuc)} ${ngayGio(p.ngay)}${p.nguoi_thu ? ' · ' + esc(p.nguoi_thu) : ''}
-          ${laChu() ? `<button class="gia-sua" style="color:var(--do)" data-a="huyTT" data-id="${p.id}">huỷ</button>` : ''}</span><span class="tien">${tien(p.so_tien)}</span></div>
+          ${laChu() ? `<button class="gia-sua" style="color:var(--do)" data-a="huyTT" data-id="${esc(p.id)}">huỷ</button>` : ''}</span><span class="tien">${tien(p.so_tien)}</span></div>
         ${p.hinh_thuc === 'Chuyển khoản' || (p.anh && p.anh.length) ? `<div class="anh-ds" style="margin:0 0 6px">${veAnh(p.anh).replace(/^<div class="anh-ds">|<\/div>$/g, '')}
-          <button class="nut-anh" style="width:auto;height:auto;padding:6px 10px;font-size:13px" data-a="themAnh" data-loai="thanh_toan" data-id="${p.id}" data-tm="ck-khach/${d.khach_hang_id}">📎 ${p.anh && p.anh.length ? 'thêm' : 'ảnh CK'}</button></div>` : ''}`).join('')}
+          <button class="nut-anh" style="width:auto;height:auto;padding:6px 10px;font-size:13px" data-a="themAnh" data-loai="thanh_toan" data-id="${esc(p.id)}" data-tm="ck-khach/${esc(d.khach_hang_id)}">📎 ${p.anh && p.anh.length ? 'thêm' : 'ảnh CK'}</button></div>` : ''}`).join('')}
       ${!huy && no > 0 ? `<div class="tong-dong" style="font-weight:700"><span>Còn phải thu</span><span class="no tien">${tien(no)}</span></div>` : ''}
       ${!huy && x.noCu > 0 ? `<div class="tong-dong mo"><span>Nợ các đơn trước</span><span class="tien">${tien(x.noCu)}</span></div>
         <div class="tong-dong" style="font-weight:700"><span>Khách đang nợ tổng</span><span class="no tien">${tien(x.noCu + no)}</span></div>${nutNoCu()}` : ''}</div>
@@ -1202,7 +1226,7 @@ function veChiTietDon(x) {
         <button class="nut chinh" data-a="thuDon" data-ht="Chuyển khoản">✓ Đã nhận CK ${tien(no)}</button>
         <button class="nut" data-a="thuDon" data-ht="Tiền mặt">💵 Thu tiền mặt</button>
         <button class="nut" data-a="thuMotPhan">Thu một phần</button></div>
-      ${qr ? `<img class="qr" src="${qr}" alt="QR chuyển khoản"><p class="mo" style="text-align:center;margin:0">Nội dung CK: <b>${d.id}</b></p>`
+      ${qr ? `<img class="qr" src="${qr}" alt="QR chuyển khoản"><p class="mo" style="text-align:center;margin:0">Nội dung CK: <b>${esc(d.id)}</b></p>`
            : laChu() ? '<p class="mo">Thêm số tài khoản ở tab Thêm → Cửa hàng & ngân hàng để hiện mã QR.</p>' : ''}</div>` : ''}
     <div class="hang-nut">
       <button class="nut" data-a="copyHD">📋 Copy hoá đơn</button>
@@ -1364,9 +1388,9 @@ HD.inHD = async el => {
   const lq = no > 0 && kieu === 'qr' ? linkQR(no, d.id) : '';
   // Phần chuyển khoản: QR (nếu chọn) + số TK; "Không in" thì bỏ trống
   const ck = no > 0 && kieu !== 'khong' && nh.so_tk ? `<hr><div class="giua">${lq ? `<img src="${lq}" alt="" style="width:46mm;display:block;margin:0 auto 2px">` : ''}
-    <b>${esc(nh.ten_ngan_hang || '')} ${esc(nh.so_tk)}</b><br>${esc(nh.ten_tk || '')}<br>Nội dung CK: <b>${d.id}</b></div>` : '';
+    <b>${esc(nh.ten_ngan_hang || '')} ${esc(nh.so_tk)}</b><br>${esc(nh.ten_tk || '')}<br>Nội dung CK: <b>${esc(d.id)}</b></div>` : '';
   $('#vung-in').innerHTML = `<div class="giua"><b style="font-size:15px">${esc(shop.ten || '')}</b><br>${esc(shop.dia_chi || '')}${shop.sdt ? '<br>ĐT: ' + esc(shop.sdt) : ''}
-    <br><b>HOÁ ĐƠN ${d.id}</b><br>${ngayDayDu(d.ngay)}</div><hr>Khách: <b>${esc(d.ten_khach)}</b><hr>
+    <br><b>HOÁ ĐƠN ${esc(d.id)}</b><br>${ngayDayDu(d.ngay)}</div><hr>Khách: <b>${esc(d.ten_khach)}</b><hr>
     <table>${ct.map(c => `<tr><td colspan="2">${esc(c.ten_hang)}</td></tr><tr><td>&nbsp;${so(c.so_luong)} ${esc(c.quy_cach)} × ${so(c.don_gia - c.giam_gia)}</td><td class="phai">${so(c.thanh_tien)}</td></tr>`).join('')}</table><hr>
     <table>${Number(d.chiet_khau) ? `<tr><td>Tiền hàng</td><td class="phai">${so(d.tong_tien_hang)}</td></tr><tr><td>Chiết khấu</td><td class="phai">-${so(d.chiet_khau)}</td></tr>` : ''}
     <tr><td><b>TỔNG CỘNG</b></td><td class="phai"><b>${tien(d.tong_cong)}</b></td></tr>
@@ -1404,7 +1428,7 @@ function veChiTietKhach(x) {
   const { k, no, gan, tongNo } = x; const sdt = chiSo(k.sdt); const laLe = k.id === 'KHLE';
   const qr = tongNo > 0 && !laLe ? linkQR(tongNo, 'NO ' + k.id) : '';
   return `
-    <div class="the"><div class="dong"><div class="gian"><span class="mo">${k.id} · ${esc(k.nhom)}${k.khoa ? ' · <span class="no">đã khoá</span>' : ''}</span>
+    <div class="the"><div class="dong"><div class="gian"><span class="mo">${esc(k.id)} · ${esc(k.nhom)}${k.khoa ? ' · <span class="no">đã khoá</span>' : ''}</span>
       ${k.sdt ? `<br>${esc(k.sdt)}` : ''}${k.dia_chi ? `<br><span class="mo">${esc(k.dia_chi)}</span>` : ''}
       ${k.ghi_chu ? `<br><span class="mo">📝 ${esc(k.ghi_chu)}</span>` : ''}</div>
       ${sdt ? `<a class="nut nho" href="tel:${sdt}">📞</a><a class="nut nho" href="${ZALO}${sdt}" target="_blank" rel="noopener">Zalo</a>` : ''}</div>
@@ -1414,7 +1438,7 @@ function veChiTietKhach(x) {
         ${tongNo > 0 && !laLe ? `<button class="nut chinh" data-a="thuNo">💵 Thu nợ</button><button class="nut" data-a="nhacNo">📋 Copy nhắc nợ</button>` : ''}
         ${!laLe ? `<button class="nut" data-a="lenDonChoKhach">🛒 Lên đơn</button>` : ''}
         <button class="nut" data-a="suaKhach">✎ Sửa</button></div>
-      ${qr ? `<img class="qr" src="${qr}" alt="QR trả nợ"><p class="mo" style="text-align:center;margin:0">Nội dung CK: <b>NO ${k.id}</b></p>` : ''}</div>
+      ${qr ? `<img class="qr" src="${qr}" alt="QR trả nợ"><p class="mo" style="text-align:center;margin:0">Nội dung CK: <b>NO ${esc(k.id)}</b></p>` : ''}</div>
     ${no.length ? `<h3>Đơn còn nợ (cũ nhất trước)</h3><div class="the ds">${no.map(veDongDon).join('')}</div>` : ''}
     <h3>Đơn gần đây</h3><div class="the ds">${gan.map(veDongDon).join('') || '<div class="trong">Chưa có đơn</div>'}</div>`;
 }
@@ -1498,9 +1522,9 @@ function veNhacNo() {
           <span class="mo">nợ từ ${soNgayTruoc(k.ngay_no_cu_nhat)} ngày · ${k.so_don_no} đơn · </span>
           <span class="${da == null ? 'no' : 'mo'}">${da == null ? 'chưa nhắc' : da === 0 ? '✓ đã nhắc hôm nay' : 'nhắc ' + da + ' ngày trước'}</span></span>
           <b class="no tien">${tien(k.tong_no)}</b></div>
-        <div class="hang-nut" style="margin-top:6px"><button class="nut" data-a="nhCopy" data-id="${k.id}">📋 Copy tin</button>
+        <div class="hang-nut" style="margin-top:6px"><button class="nut" data-a="nhCopy" data-id="${esc(k.id)}">📋 Copy tin</button>
           ${sdt ? `<a class="nut" href="${ZALO}${sdt}" target="_blank" rel="noopener">Zalo</a><a class="nut" href="tel:${sdt}">📞</a>` : '<span class="mo" style="align-self:center">chưa có SĐT</span>'}
-          <button class="nut" data-a="moKhach" data-id="${k.id}">Xem</button></div></div>`; }).join('') || '<div class="trong">Không có khách nào nợ quá ' + g.ngay + ' ngày 🎉</div>'}</div>`;
+          <button class="nut" data-a="moKhach" data-id="${esc(k.id)}">Xem</button></div></div>`; }).join('') || '<div class="trong">Không có khách nào nợ quá ' + g.ngay + ' ngày 🎉</div>'}</div>`;
 }
 HD.nhLoc = el => { S.nh.ngay = +el.dataset.n; veBang(); };
 HD.nhCopy = async el => {
@@ -1522,15 +1546,15 @@ function veDsKhach() {
     const ds = locTimKhach(S.noDs), tong = S.noDs.reduce((s, k) => s + Number(k.tong_no), 0);
     o.innerHTML = `<div class="the"><span class="mo">${S.noDs.length} khách đang nợ</span><div class="so-lon no tien">${tien(tong)}</div>
       ${S.noDs.length ? '<button class="nut" style="width:100%;margin-top:8px" data-a="nhacHangLoat">📨 Nhắc nợ hàng loạt</button>' : ''}</div>
-      <div class="the ds">${ds.map(k => `<div class="muc dong" data-a="moKhach" data-id="${k.id}"><div class="gian"><b>${esc(k.ten)}</b>
+      <div class="the ds">${ds.map(k => `<div class="muc dong" data-a="moKhach" data-id="${esc(k.id)}"><div class="gian"><b>${esc(k.ten)}</b>
           ${k.han_muc_no > 0 && Number(k.tong_no) > k.han_muc_no ? '<span class="the-nhan do">vượt hạn mức</span>' : ''}<br>
           <span class="mo">${k.so_don_no} đơn · nợ từ ${soNgayTruoc(k.ngay_no_cu_nhat)} ngày trước${k.sdt ? ' · ' + esc(k.sdt) : ''}</span></div>
           <b class="no tien">${tien(k.tong_no)}</b></div>`).join('') || `<div class="trong">${S.noDs.length ? 'Không thấy khách' : 'Không ai nợ 🎉'}</div>`}</div>`;
     return;
   }
   const ds = locTimKhach(S.khach).slice(0, 100);
-  o.innerHTML = `<div class="the ds">${ds.map(k => `<div class="muc dong" data-a="moKhach" data-id="${k.id}"><div class="gian"><b>${esc(k.ten)}</b>
-    ${k.khoa ? '<span class="the-nhan">khoá</span>' : ''}<br><span class="mo">${esc(k.sdt || '')} · ${k.id} · ${esc(k.nhom)}</span></div>
+  o.innerHTML = `<div class="the ds">${ds.map(k => `<div class="muc dong" data-a="moKhach" data-id="${esc(k.id)}"><div class="gian"><b>${esc(k.ten)}</b>
+    ${k.khoa ? '<span class="the-nhan">khoá</span>' : ''}<br><span class="mo">${esc(k.sdt || '')} · ${esc(k.id)} · ${esc(k.nhom)}</span></div>
     ${k.con_no > 0 ? `<b class="no tien">${tien(k.con_no)}</b>` : ''}</div>`).join('') || '<div class="trong">Không thấy khách</div>'}</div>`;
 }
 GO.timKhachTab = el => { S.timKhach = el.value; veDsKhach(); };
@@ -1560,7 +1584,7 @@ function veThem() {
       <div class="muc dong" data-a="doiMatKhau"><span class="gian">🔑 <b>Đổi mật khẩu</b></span>›</div>
       <div class="muc dong" data-a="dangXuat"><span class="gian no">⎋ Đăng xuất</span></div>
     </div>
-    <p class="mo" style="text-align:center">Bản 2.3</p>`;
+    <p class="mo" style="text-align:center">Bản 2.4</p>`;
 }
 // ── HOÁ ĐƠN CHO KẾ TOÁN: Excel + PDF các hoá đơn bán trong 1 tháng (chủ) ──
 // Lấy đơn theo tháng (giờ VN), mỗi lần 1000 đơn cho tới hết, kèm chi tiết món + khách + tiền đã trả.
@@ -1833,7 +1857,7 @@ HD.nhanVien = async () => { const ds = await api('nhan_vien?select=*&order=tao_l
 function veNhanVien(ds) {
   return `<div class="the ds">${ds.map(n => `<div class="muc dong"><div class="gian"><b>${esc(n.ten)}</b> <span class="the-nhan ${n.vai_tro === 'chu' ? 'xanh' : ''}">${n.vai_tro === 'chu' ? 'Chủ' : 'Nhân viên'}</span>
       ${n.hoat_dong ? '' : '<span class="the-nhan do">chờ duyệt / khoá</span>'}<br><span class="mo">${esc(n.email || '')}</span></div>
-      ${n.id !== S.toi.id ? `<button class="nut nho ${n.hoat_dong ? 'do' : 'chinh'}" data-a="batTatNV" data-id="${n.id}" data-v="${n.hoat_dong ? 0 : 1}">${n.hoat_dong ? 'Khoá' : 'Duyệt'}</button>` : ''}</div>`).join('')}</div>
+      ${n.id !== S.toi.id ? `<button class="nut nho ${n.hoat_dong ? 'do' : 'chinh'}" data-a="batTatNV" data-id="${esc(n.id)}" data-v="${n.hoat_dong ? 0 : 1}">${n.hoat_dong ? 'Khoá' : 'Duyệt'}</button>` : ''}</div>`).join('')}</div>
     <button class="nut chinh" style="width:100%" data-a="taoNV">＋ Tạo tài khoản nhân viên</button>
     <p class="mo">Nhân viên được: bán hàng, thu tiền, thêm/sửa khách, huỷ đơn của mình trong 30 phút.<br>Chỉ chủ: sửa giá, xem báo cáo, huỷ thanh toán, quản lý nhân viên.</p>`;
 }
@@ -1900,14 +1924,14 @@ function veDienGia() {
 }
 function veDsDienGia(ds) {
   const so = S.dg.so;
-  return ds.slice(0, so).map(h => `<div class="the" data-dg="${h.id}" style="padding:10px 12px">
-      <div class="dong"><b class="gian">${esc(h.ten)}</b><button class="nut-sua" style="font-size:13px;color:var(--do)" data-a="dgNgung" data-id="${h.id}">Ngừng bán</button></div>
+  return ds.slice(0, so).map(h => `<div class="the" data-dg="${esc(h.id)}" style="padding:10px 12px">
+      <div class="dong"><b class="gian">${esc(h.ten)}</b><button class="nut-sua" style="font-size:13px;color:var(--do)" data-a="dgNgung" data-id="${esc(h.id)}">Ngừng bán</button></div>
       <span class="mo">${esc(h.dv)}${h.dm ? ' · ' + esc(h.dm) : ''}</span>
       <div class="dong" style="gap:6px;margin-top:6px">
-        <input class="o" style="flex:3" id="dgqc_${h.id}" value="${esc(h.dv)}" placeholder="quy cách" list="dl-qc">
-        <input class="o" style="flex:2;text-align:center" id="dgqd_${h.id}" value="1" inputmode="decimal" title="1 quy cách = bao nhiêu ${esc(h.dv)}">
-        <input class="o" style="flex:4;text-align:right" id="dggia_${h.id}" placeholder="giá" inputmode="decimal" enterkeyhint="go" data-enter="dgLuu" data-id="${h.id}">
-        <button class="nut chinh" data-a="dgLuu" data-id="${h.id}">✓</button></div></div>`).join('')
+        <input class="o" style="flex:3" id="dgqc_${esc(h.id)}" value="${esc(h.dv)}" placeholder="quy cách" list="dl-qc">
+        <input class="o" style="flex:2;text-align:center" id="dgqd_${esc(h.id)}" value="1" inputmode="decimal" title="1 quy cách = bao nhiêu ${esc(h.dv)}">
+        <input class="o" style="flex:4;text-align:right" id="dggia_${esc(h.id)}" placeholder="giá" inputmode="decimal" enterkeyhint="go" data-enter="dgLuu" data-id="${esc(h.id)}">
+        <button class="nut chinh" data-a="dgLuu" data-id="${esc(h.id)}">✓</button></div></div>`).join('')
     + `<datalist id="dl-qc">${['thùng', 'lốc', 'hộp', 'gói', 'chai', 'lon', 'cây', 'chục', 'bịch', 'kg', 'cái', 'bao'].map(x => `<option value="${x}">`).join('')}</datalist>`
     + (ds.length > so ? `<button class="nut" style="width:100%" data-a="dgThem">Xem thêm (${ds.length - so} món nữa)</button>`
        : ds.length ? '' : '<div class="trong">Không còn món nào chưa có giá 🎉</div>');
@@ -2116,7 +2140,7 @@ async function veDsHang() {
   if (!$('#ds-hang')) return;
   const giaGon = h => h.gia.map(g => `${esc(g.qc)}${g.qd > 1 ? '(' + so(g.qd) + ')' : ''} <b>${so(g.g / 1000)}k</b>`).join(' · ');
   o.innerHTML = `<p class="mo" style="margin:0 0 6px">${ds.length} mặt hàng</p>
-    <div class="the ds">${ds.slice(0, S.hSo).map(h => `<div class="muc dong" data-a="${S.hCheDo ? 'chonHang' : 'xemHang'}" data-id="${h.id}">
+    <div class="the ds">${ds.slice(0, S.hSo).map(h => `<div class="muc dong" data-a="${S.hCheDo ? 'chonHang' : 'xemHang'}" data-id="${esc(h.id)}">
       ${S.hCheDo ? `<span class="o-chon">${S.hChon.has(h.id) ? '☑' : '☐'}</span>` : ''}
       <div class="gian"><b>${esc(h.ten)}</b><br>
         <span class="mo">${esc(h.dv)}${h.dm ? ' · ' + esc(h.dm) : ''}</span>
@@ -2200,12 +2224,12 @@ async function moChiTietHang(id) {
 function veChiTietHang(h) {
   const chu = laChu();
   return `
-    <div class="the"><span class="mo">${h.id} · ${esc(h.don_vi)}${h.danh_muc ? ' · ' + esc(h.danh_muc.ten) : ''}</span>
+    <div class="the"><span class="mo">${esc(h.id)} · ${esc(h.don_vi)}${h.danh_muc ? ' · ' + esc(h.danh_muc.ten) : ''}</span>
       ${h.dang_ban ? '' : ' <span class="the-nhan do">ngừng bán</span>'}
       ${h.ghi_chu ? `<br><span class="mo">📝 ${esc(h.ghi_chu)}</span>` : ''}</div>
     <div class="the"><h3>Nhà cung cấp</h3>
       ${(h.ncc_hang || []).map(l => l.nha_cung_cap).filter(Boolean).map(n => `<div class="dong" style="margin-top:6px">
-        <div class="gian" data-a="nccMo" data-id="${n.id}"><b>${esc(n.ten)}</b>${n.id === h.ncc_id ? ' <span class="the-nhan xanh">chính</span>' : ''}<br>
+        <div class="gian" data-a="nccMo" data-id="${esc(n.id)}"><b>${esc(n.ten)}</b>${n.id === h.ncc_id ? ' <span class="the-nhan xanh">chính</span>' : ''}<br>
           <span class="mo">${n.nguoi_lien_he ? esc(n.nguoi_lien_he) + ' · ' : ''}${esc(n.sdt_nv || n.sdt || '')}</span></div>
         ${nutGoi(n.sdt_nv || n.sdt)}</div>`).join('') || '<p class="mo" style="margin:0">Chưa gán nhà cung cấp.</p>'}
       ${chu ? `<div class="hang-nut"><button class="nut nho" data-a="nccGanChoHang">＋ Gán nhà cung cấp</button></div>` : ''}</div>
@@ -2285,7 +2309,7 @@ function veDsNcc() {
   // Tìm theo tên hàng: gõ "fami" → hiện NCC nào bỏ Fami
   const hangKhop = q.length >= 2 ? new Set(S.hang.filter(h => h._t.includes(q)).map(h => h.id)) : new Set();
   const ds = S.ncc.filter(n => !q || n._t.includes(q) || (qs.length >= 3 && n._t.includes(qs)) || n.ncc_hang.some(l => hangKhop.has(l.hang_hoa_id)));
-  return `<div class="the ds">${ds.map(n => `<div class="muc dong" data-a="nccMo" data-id="${n.id}"><div class="gian"><b>${esc(n.ten)}</b>
+  return `<div class="the ds">${ds.map(n => `<div class="muc dong" data-a="nccMo" data-id="${esc(n.id)}"><div class="gian"><b>${esc(n.ten)}</b>
       ${n.dang_hop_tac ? '' : '<span class="the-nhan">ngừng</span>'}<br>
       <span class="mo">${n.nguoi_lien_he ? '👤 ' + esc(n.nguoi_lien_he) + ' · ' : ''}${esc(n.sdt_nv || n.sdt || 'chưa có SĐT')} · ${n.soHang} mặt hàng</span></div>
       ${n.conNo > 0 ? `<b class="no tien">${tien(n.conNo)}</b>` : ''}›</div>`).join('')
@@ -2326,10 +2350,10 @@ function veChiTietNcc(n) {
     ${veToaNcc(n)}
     <h3>Mặt hàng NCC này bỏ (${n.hang.length})${het.length ? ` · <span class="no">${het.length} sắp hết</span>` : ''}</h3>
     ${chu ? '<button class="nut chinh" style="width:100%;margin-bottom:8px" data-a="nccThemHang">＋ Thêm mặt hàng</button>' : ''}
-    <div class="the ds">${n.hang.map(h => `<div class="muc dong"><div class="gian" data-a="xemHang" data-id="${h.id}"><b>${esc(h.ten)}</b>
+    <div class="the ds">${n.hang.map(h => `<div class="muc dong"><div class="gian" data-a="xemHang" data-id="${esc(h.id)}"><b>${esc(h.ten)}</b>
         ${h.dang_ban ? '' : '<span class="the-nhan">ngừng bán</span>'}<br>
         <span class="mo ${sapHet(h) ? 'no' : ''}">${h.ton_kho == null ? esc(h.don_vi) : 'tồn ' + so(h.ton_kho) + ' ' + esc(h.don_vi) + (sapHet(h) ? ' – sắp hết' : '')}</span></div>
-        ${chu ? `<button class="nut-sua" data-a="nccBoHang" data-id="${h.id}" title="Bỏ khỏi NCC này">✕</button>` : ''}</div>`).join('')
+        ${chu ? `<button class="nut-sua" data-a="nccBoHang" data-id="${esc(h.id)}" title="Bỏ khỏi NCC này">✕</button>` : ''}</div>`).join('')
       || '<div class="trong">Chưa gán mặt hàng nào</div>'}</div>`;
 }
 // Toa hàng & công nợ NCC: tổng toa – đã trả = còn nợ; dòng thời gian toa (🧾) và lần trả (💸) mới nhất trước
@@ -2349,17 +2373,17 @@ function veToaNcc(n) {
           <span class="mo">${esc(d.x.nguoi_nhap || '')}${d.x.ghi_chu ? ' · ' + esc(d.x.ghi_chu) : ''}</span></span>
         <b class="tien">${tien(d.x.tong_tien)}</b></div>
         <div class="anh-ds">${veAnh(d.x.anh).replace(/^<div class="anh-ds">|<\/div>$/g, '')}
-          <button class="nut-anh" data-a="themAnh" data-loai="toa" data-id="${d.x.id}" data-tm="toa/${n.id}" title="Thêm ảnh">📎</button>
-          ${chu ? `<button class="nut-sua" style="color:var(--do);margin-left:auto" data-a="toaHuy" data-id="${d.x.id}">huỷ toa</button>` : ''}</div>
-        <div class="hang-nut" style="margin-top:6px">${soCt(d.x) ? `<button class="nut nho" data-a="toaXemCt" data-id="${d.x.id}">📋 ${soCt(d.x)} món · giá vốn đã cập nhật</button>`
-          : (d.x.anh || []).length ? `<button class="nut nho chinh" data-a="toaDocAI" data-id="${d.x.id}">🤖 AI đọc chi tiết toa</button>`
-          : `<button class="nut nho" data-a="toaGoTay" data-id="${d.x.id}">✎ Nhập chi tiết toa</button>`}</div></div>` : `
+          <button class="nut-anh" data-a="themAnh" data-loai="toa" data-id="${esc(d.x.id)}" data-tm="toa/${esc(n.id)}" title="Thêm ảnh">📎</button>
+          ${chu ? `<button class="nut-sua" style="color:var(--do);margin-left:auto" data-a="toaHuy" data-id="${esc(d.x.id)}">huỷ toa</button>` : ''}</div>
+        <div class="hang-nut" style="margin-top:6px">${soCt(d.x) ? `<button class="nut nho" data-a="toaXemCt" data-id="${esc(d.x.id)}">📋 ${soCt(d.x)} món · giá vốn đã cập nhật</button>`
+          : (d.x.anh || []).length ? `<button class="nut nho chinh" data-a="toaDocAI" data-id="${esc(d.x.id)}">🤖 AI đọc chi tiết toa</button>`
+          : `<button class="nut nho" data-a="toaGoTay" data-id="${esc(d.x.id)}">✎ Nhập chi tiết toa</button>`}</div></div>` : `
       <div class="muc"><div class="dong"><span class="gian">💸 <b>Trả ${esc(d.x.hinh_thuc.toLowerCase())}</b> · ${ngayNgan(d.x.ngay)}<br>
           <span class="mo">${esc(d.x.nguoi_tra || '')}${d.x.phieu_nhap_id ? ' · trả luôn lúc nhận toa' : ''}${d.x.ghi_chu ? ' · ' + esc(d.x.ghi_chu) : ''}</span></span>
         <b class="tien" style="color:var(--chinh)">−${tien(d.x.so_tien)}</b></div>
         <div class="anh-ds">${veAnh(d.x.anh).replace(/^<div class="anh-ds">|<\/div>$/g, '')}
-          <button class="nut-anh" data-a="themAnh" data-loai="tra_ncc" data-id="${d.x.id}" data-tm="ck-ncc/${n.id}" title="Thêm ảnh">📎</button>
-          ${chu ? `<button class="nut-sua" style="color:var(--do);margin-left:auto" data-a="nccTraHuy" data-id="${d.x.id}">huỷ</button>` : ''}</div></div>`).join('')}</div>`
+          <button class="nut-anh" data-a="themAnh" data-loai="tra_ncc" data-id="${esc(d.x.id)}" data-tm="ck-ncc/${esc(n.id)}" title="Thêm ảnh">📎</button>
+          ${chu ? `<button class="nut-sua" style="color:var(--do);margin-left:auto" data-a="nccTraHuy" data-id="${esc(d.x.id)}">huỷ</button>` : ''}</div></div>`).join('')}</div>`
       : '<p class="mo">Chưa có toa nào. Nhận hàng xong bấm 📷 Thêm toa, chụp toa và gõ tổng tiền.</p>'}`;
 }
 HD.toaThem = async () => {
@@ -2627,8 +2651,8 @@ function veDsKiemKho(ds) {
   return `<div class="the ds">${ds.slice(0, 200).map(x => { const h = x.h, go = S.kk.nhap[x.id] || '';
     return `<div class="muc"><div class="dong" style="gap:8px"><div class="gian"><b>${esc(h.ten)}</b><br>
         <span class="mo">Máy tính: <b class="${x.ton <= (x.min || 0) ? 'no' : ''}">${esc(tonChu(x.ton, h))}</b> · ${x.dem ? 'đếm ' + ngayNgan(x.dem) + (x.nguoi ? ' (' + esc(x.nguoi) + ')' : '') : '<span class="no">chưa đếm</span>'}</span></div>
-      <input class="o" style="width:30%;text-align:center" value="${esc(go)}" placeholder="đếm được" data-i="kkGo" data-id="${x.id}" data-enter="kkKe" autocomplete="off" enterkeyhint="next"></div>
-      <div class="goi-y" style="text-align:right" id="kk-${x.id}">${xemDem(x, go)}</div></div>`; }).join('') || '<div class="trong">Không có món nào</div>'}</div>
+      <input class="o" style="width:30%;text-align:center" value="${esc(go)}" placeholder="đếm được" data-i="kkGo" data-id="${esc(x.id)}" data-enter="kkKe" autocomplete="off" enterkeyhint="next"></div>
+      <div class="goi-y" style="text-align:right" id="kk-${esc(x.id)}">${xemDem(x, go)}</div></div>`; }).join('') || '<div class="trong">Không có món nào</div>'}</div>
     ${ds.length > 200 ? `<p class="mo">Đang hiện 200/${ds.length} món – gõ tìm để thấy món khác.</p>` : ''}`;
 }
 // Dòng xem trước dưới ô: "= 127 lon · khớp ✓" / "thiếu 7 lon (−63.000đ)"
@@ -2717,7 +2741,7 @@ function veKqNccHang() {
   const q = S.timNccHang.trim();
   const ds = q ? loc(q) : S.hang.filter(h => S.nccChon.has(h.id));
   return `<div class="the ds" style="margin-top:8px">${ds.map(h => { const co = S.nccChon.has(h.id);
-    return `<div class="muc dong" data-a="nccBatHang" data-id="${h.id}"><span class="gian">${co ? '✅' : '⬜'} ${esc(h.ten)}<br>
+    return `<div class="muc dong" data-a="nccBatHang" data-id="${esc(h.id)}"><span class="gian">${co ? '✅' : '⬜'} ${esc(h.ten)}<br>
       <span class="mo">${esc(h.dv)}${h.dm ? ' · ' + esc(h.dm) : ''}</span></span></div>`; }).join('')
     || `<div class="trong">${q ? 'Không thấy "' + esc(q) + '"' : 'Chưa gán món nào'}</div>`}</div>`;
 }
