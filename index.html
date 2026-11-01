@@ -145,6 +145,21 @@ a.nut{text-decoration:none;color:inherit}
   #vung-in .phai{text-align:right}
   #vung-in hr{border:0;border-top:1px dashed #000}
 }
+/* Quét mã vạch: camera toàn màn hình, khung ngắm ở giữa */
+#quet{position:fixed;inset:0;z-index:25;background:#000;color:#fff;display:flex;flex-direction:column}
+#quet video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#quet .quet-khung{position:absolute;left:8%;right:8%;top:32%;height:22%;border:3px solid rgba(255,255,255,.9);border-radius:14px;box-shadow:0 0 0 100vmax rgba(0,0,0,.35)}
+#quet .quet-khung::after{content:'';position:absolute;left:6%;right:6%;top:50%;height:2px;background:#ef4444;opacity:.8}
+#quet .quet-tren,#quet .quet-duoi{position:relative;z-index:1;padding:12px 14px;background:linear-gradient(rgba(0,0,0,.7),rgba(0,0,0,0))}
+#quet .quet-tren{display:flex;align-items:center;gap:8px;padding-top:calc(12px + env(safe-area-inset-top))}
+#quet .quet-tren b{flex:1;font-size:16px}
+#quet .quet-duoi{margin-top:auto;background:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.8));padding-bottom:calc(14px + env(safe-area-inset-bottom))}
+#quet .quet-kq{min-height:44px;font-size:15px;line-height:1.35;margin-bottom:8px}
+#quet .quet-kq .tot{color:#86efac}#quet .quet-kq .loi{color:#fca5a5}
+#quet .nut{background:rgba(255,255,255,.15);color:#fff;border-color:rgba(255,255,255,.3)}
+#quet .nut.chinh{background:var(--chinh);border-color:var(--chinh)}
+#quet.loe{animation:loe .25s}
+@keyframes loe{from{box-shadow:inset 0 0 0 6px #22c55e}to{box-shadow:inset 0 0 0 0 #22c55e}}
 </style>
 </head>
 <body>
@@ -468,7 +483,12 @@ function xoaGioDangMo(g) {
 const timHang = id => S.hang.find(h => h.id === id);
 
 // Chuẩn bị chuỗi tìm kiếm không dấu cho từng mặt hàng (làm 1 lần khi tải)
-function chuanBiHang() { S.hang.forEach(h => { h._t = boDau(h.ten + ' ' + (h.dm || '') + ' ' + h.id); }); }
+// Kèm mã vạch (h.mv) để gõ / máy quét Bluetooth gõ số mã vào ô tìm cũng ra món. S.mv: mã → {id, qc}
+function chuanBiHang() {
+  S.mv = {};
+  S.hang.forEach(h => { const mv = h.mv || []; mv.forEach(x => { S.mv[x.m] = { id: h.id, qc: x.qc }; });
+    h._t = boDau(h.ten + ' ' + (h.dm || '') + ' ' + h.id + ' ' + mv.map(x => x.m).join(' ')); });
+}
 async function taiHang(imLang) {
   const j = await rpc('lay_danh_muc_hang');
   S.hang = j.hang; S.hangLuc = Date.now(); chuanBiHang();
@@ -601,6 +621,219 @@ GO.xemTien = el => { const g = el.nextElementSibling;   // dòng "= 365.000đ" n
   if (g && g.classList.contains('goi-y')) g.textContent = el.value ? '= ' + tien(docTien(el.value)) : ''; };
 async function xacNhan(cauHoi, chuNut) { const v = await hoi('Xác nhận', [], chuNut || 'Đồng ý', esc(cauHoi)); return !!v; }
 
+// ── 5c. QUÉT MÃ VẠCH ─────────────────────────────────────────────────
+// Camera iPhone đọc mã vạch (EAN-13 trên lon/chai/gói, ITF-14 trên thùng, Code 128, QR).
+// iPhone chưa có sẵn bộ đọc mã → tải thư viện barcode-detector (khoảng 1MB, chỉ tải lần đầu bấm 📷, sau đó máy tự giữ).
+// Máy quét cầm tay Bluetooth (loại "gõ như bàn phím") dùng luôn ô Tìm hàng: quét = gõ mã + Enter.
+// Bảng ma_vach: 1 mã → 1 món + 1 quy cách (NULL = đơn vị nhỏ nhất). Danh mục tải về máy có sẵn mã (h.mv) → quét không cần mạng.
+const BD_URL = 'https://cdn.jsdelivr.net/npm/barcode-detector@3.2.2/dist/iife/ponyfill.js';
+const BD_SRI = 'sha384-KJVUIUGb4pmfpWXfD8j3y9ARn6KoGC2vPC/wNUX1O1ZkYemh0BsuvsmdEU2+wS7O';   // chống file bị tráo trên CDN
+const DANG_MA = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'code_128', 'code_39', 'qr_code'];
+let boDocMa = null;
+async function layBoDocMa() {
+  if (boDocMa) return boDocMa;
+  // Android Chrome có sẵn bộ đọc → dùng luôn, khỏi tải thư viện
+  if ('BarcodeDetector' in window) {
+    try { const co = await BarcodeDetector.getSupportedFormats();
+      if (co.includes('ean_13')) return (boDocMa = new BarcodeDetector({ formats: DANG_MA.filter(x => co.includes(x)) })); } catch (e) {}
+  }
+  if (!window.BarcodeDetectionAPI) await new Promise((ok, loi) => {
+    const s = document.createElement('script');
+    if (!CFG.thu) { s.integrity = BD_SRI; s.crossOrigin = 'anonymous'; }
+    s.src = CFG.thu ? CFG.url + '/lib/ponyfill.js' : BD_URL;
+    s.onload = ok; s.onerror = () => loi(new Error('Không tải được bộ đọc mã vạch – kiểm tra mạng rồi thử lại'));
+    document.head.appendChild(s);
+  });
+  const A = window.BarcodeDetectionAPI;
+  if (CFG.thu) A.prepareZXingModule({ overrides: { locateFile: (p, dau) => p.endsWith('.wasm') ? CFG.url + '/lib/' + p : dau + p } });
+  return (boDocMa = new A.BarcodeDetector({ formats: DANG_MA }));
+}
+// Tiếng "bíp" khi đọc được mã (iPhone không rung được từ web)
+let amThanh = null;
+function bip(cao) {
+  try { if (!amThanh) amThanh = new (window.AudioContext || window.webkitAudioContext)();
+    const o = amThanh.createOscillator(), g = amThanh.createGain(); o.frequency.value = cao ? 1760 : 440; g.gain.value = 0.15;
+    o.connect(g); g.connect(amThanh.destination); o.start(); o.stop(amThanh.currentTime + (cao ? 0.08 : 0.25)); } catch (e) {}
+  if (navigator.vibrate) navigator.vibrate(cao ? 40 : [60, 60, 60]);
+}
+// Tra mã trong danh mục đã tải về máy. Mã 12 số (UPC-A) và 13 số có số 0 đầu là cùng 1 mã.
+function timMa(ma) {
+  ma = String(ma || '').trim().toUpperCase(); if (!ma) return null;
+  const M = S.mv || {}, r = M[ma] || (/^\d{12}$/.test(ma) && M['0' + ma]) || (/^0\d{12}$/.test(ma) && M[ma.slice(1)]);
+  const h = r && timHang(r.id);
+  return h ? { h, qc: r.qc, ma } : null;
+}
+// Giá theo quy cách của mã: NULL = giá đơn vị nhỏ nhất (quy đổi 1)
+function giaTheoMa(h, qc) {
+  if (!qc) return h.gia.find(g => Number(g.qd) === 1) || null;
+  return h.gia.find(g => g.qc.toLowerCase() === qc.toLowerCase()) || null;
+}
+const tenQcMa = (h, qc) => qc || h.dv;
+
+// Mở camera. xuLy(ma) chạy mỗi lần đọc được mã. lienTuc = quét nhiều món liên tục (bán hàng); không thì đọc 1 mã rồi đóng.
+async function moQuet(tieuDe, xuLy, lienTuc) {
+  dongQuet();
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('Máy này không mở được camera trong app – bấm ⌨ Gõ mã');
+  const q = S.q = { tieuDe, xuLy, lienTuc, cuoi: {}, ban: false };
+  bip(true);   // bấm nút = cho phép phát âm thanh (iPhone bắt buộc)
+  const o = document.createElement('div'); o.id = 'quet';
+  o.innerHTML = `<video playsinline muted autoplay></video><div class="quet-khung"></div>
+    <div class="quet-tren"><b>${esc(tieuDe)}</b><button class="nut nho" data-a="quetDong">✕</button></div>
+    <div class="quet-duoi"><div class="quet-kq" id="quet-kq">Đang mở camera…</div>
+      <div class="hang-nut"><button class="nut an" data-a="quetDen" id="quet-den">🔦 Đèn</button><button class="nut" data-a="quetGo">⌨ Gõ mã</button>
+        <button class="nut chinh" style="flex:2" data-a="quetDong">${lienTuc ? 'Xong' : 'Đóng'}</button></div></div>`;
+  document.body.appendChild(o);
+  try {
+    const [bd, st] = await Promise.all([layBoDocMa(), navigator.mediaDevices.getUserMedia({ audio: false,
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } })]);
+    q.boDoc = bd; q.st = st;
+  } catch (e) {
+    if (S.q === q) dongQuet();
+    throw new Error(e && e.name === 'NotAllowedError' ? 'Chưa cho app dùng camera. iPhone: Cài đặt → Safari → Camera → Cho phép, rồi mở lại app'
+      : e && e.name === 'NotFoundError' ? 'Không tìm thấy camera' : (e && e.message) || 'Không mở được camera');
+  }
+  if (S.q !== q) { q.st.getTracks().forEach(t => t.stop()); return; }   // đã bấm đóng trong lúc chờ
+  const v = o.querySelector('video'); v.srcObject = q.st; try { await v.play(); } catch (e) {}
+  const tr = q.st.getVideoTracks()[0], cap = tr && tr.getCapabilities ? tr.getCapabilities() : {};
+  if (cap.torch) $('#quet-den').classList.remove('an');
+  hienKqQuet(lienTuc ? 'Đưa mã vạch vào khung. Quét liên tục được nhiều món.' : 'Đưa mã vạch vào khung');
+  vongQuet(q, v);
+}
+async function vongQuet(q, v) {
+  while (S.q === q) {
+    if (!q.ban && v.readyState >= 2) {
+      try { const kq = await q.boDoc.detect(v); const m = kq && kq[0] && String(kq[0].rawValue || '').trim(); if (m) await nhanMa(q, m); }
+      catch (e) {}
+    }
+    await new Promise(r => setTimeout(r, 120));
+  }
+}
+// Cùng 1 mã còn nằm trong khung thì không tính lại. Đưa ra khỏi khung > 1,2 giây rồi quét lại = thêm 1 nữa.
+async function nhanMa(q, ma) {
+  const bay = Date.now();
+  if (q.cuoi.ma === ma && bay - q.cuoi.thay < 1200) { q.cuoi.thay = bay; return; }
+  q.cuoi = { ma, thay: bay };
+  await chayMa(q, ma);
+}
+async function chayMa(q, ma) {
+  bip(true); const o = $('#quet'); if (o) { o.classList.remove('loe'); void o.offsetWidth; o.classList.add('loe'); }
+  if (!q.lienTuc) dongQuet();
+  q.ban = true;
+  try { await q.xuLy(ma); }
+  catch (e) { bip(false); if (S.q === q) hienKqQuet(e.message, 'loi'); else thongBao(e.message, 'loi'); }
+  finally { q.ban = false; q.cuoi.thay = Date.now(); }
+}
+function hienKqQuet(chu, loai) { const o = $('#quet-kq'); if (o) o.innerHTML = `<span class="${loai || ''}">${esc(chu)}</span>`; }
+function dongQuet() {
+  const q = S.q; S.q = null;
+  if (q && q.st) q.st.getTracks().forEach(t => t.stop());
+  const o = $('#quet'); if (o) o.remove();
+}
+// Cần hỏi (gán mã mới…) khi đang quét liên tục: ẩn camera tạm, hỏi xong hiện lại
+async function ngoaiQuet(f) {
+  const o = $('#quet'); if (o) o.classList.add('an');
+  try { return await f(); } finally { const o2 = $('#quet'); if (o2) o2.classList.remove('an'); }
+}
+HD.quetDong = () => dongQuet();
+HD.quetDen = async () => { const q = S.q, tr = q && q.st && q.st.getVideoTracks()[0]; if (!tr) return;
+  q.den = !q.den; try { await tr.applyConstraints({ advanced: [{ torch: q.den }] }); } catch (e) { thongBao('Máy không bật được đèn', 'loi'); } };
+// Mã mờ, rách, camera không đọc được → gõ số in dưới mã vạch
+HD.quetGo = async () => {
+  const q = S.q; if (!q || q.ban) return;
+  q.ban = true;   // tạm dừng đọc camera trong lúc gõ
+  let v; try { v = await ngoaiQuet(() => hoi('Gõ mã vạch', [{ k: 'ma', nhan: 'Dãy số in dưới mã vạch', kieu: 'sdt', goiY: 'VD: 8934588012228' }], 'Xong')); }
+  finally { q.ban = false; }
+  const ma = v && String(v.ma || '').replace(/\s+/g, '').toUpperCase(); if (!ma || S.q !== q) return;
+  await chayMa(q, ma);
+};
+
+// Mã chưa gán → hỏi món nào + quy cách nào, lưu lên máy chủ và vào danh mục trên máy. Trả về {h, qc, ma} hoặc null.
+async function ganMaMoi(ma, hCo) {
+  let h = hCo;
+  if (!h) {
+    const v = await hoi('Mã mới: ' + ma, [{ k: 'q', nhan: 'Mã này của món nào? Gõ tên hàng', gt: '' }], 'Tìm',
+      'Chưa có món nào mang mã này. Gán 1 lần, lần sau quét là ra ngay.');
+    if (!v || !v.q) return null;
+    const kq = loc(v.q).slice(0, 20);
+    if (!kq.length) { thongBao('Không thấy "' + v.q + '" – thêm mặt hàng trước rồi gán mã', 'loi'); return null; }
+    const c = kq.length === 1 ? { id: kq[0].id } : await hoi('Chọn món cho mã ' + ma, [{ k: 'id', nhan: 'Món', kieu: 'chon', ds: kq.map(x => [x.id, x.ten]), gt: kq[0].id }], 'Chọn');
+    if (!c) return null; h = timHang(c.id);
+  }
+  const cu = timMa(ma);
+  if (cu && cu.h.id !== h.id && !await xacNhan(`Mã ${ma} đang gán cho "${cu.h.ten}". Chuyển sang "${h.ten}"?`, 'Chuyển mã')) return null;
+  // Quy cách: đơn vị nhỏ nhất + các quy cách lớn có giá (thùng, lốc…)
+  const ds = [['', h.dv + ' (từng ' + h.dv + ')']].concat(h.gia.filter(g => Number(g.qd) !== 1).map(g => [g.qc, g.qc + ' (' + so(g.qd) + ' ' + h.dv + ')']));
+  let qc = '';
+  if (ds.length > 1) {
+    const c = await hoi('Mã ' + ma + ' là của', [{ k: 'qc', nhan: h.ten + ' – quy cách nào?', kieu: 'chon', ds, gt: cu && cu.h.id === h.id ? (cu.qc || '') : '' }], 'Lưu mã',
+      'Mã in trên thùng / lốc thường khác mã trên từng lon, chai. Quét mã thùng → bán 1 thùng.');
+    if (!c) return null; qc = c.qc;
+  }
+  const r = await cho('Đang lưu mã…', () => rpc('gan_ma_vach', { p_ma: ma, p_hang_hoa_id: h.id, p_quy_cach: qc || null }));
+  // Cập nhật danh mục trên máy ngay (khỏi chờ tải lại)
+  S.hang.forEach(x => { if (x.mv) x.mv = x.mv.filter(m => m.m !== r.ma); });
+  (h.mv = h.mv || []).push({ m: r.ma, qc: r.qc }); S.mv[r.ma] = { id: h.id, qc: r.qc }; chuanBiHang();
+  luu('bh_hang', { hang: S.hang, taiLuc: S.hangLuc });
+  thongBao('Đã gán mã cho ' + h.ten + ' – ' + tenQcMa(h, r.qc) + (r.cu_ten ? ' (bỏ khỏi ' + r.cu_ten + ')' : ''), 'tot');
+  return { h, qc: r.qc, ma: r.ma };
+}
+
+// ── Bán hàng: quét liên tục, mỗi lần quét = +1 vào đơn đang lên
+function themTheoMa(r) {
+  const g = giaTheoMa(r.h, r.qc);
+  if (!g) throw new Error(r.h.ten + ' chưa có giá ' + tenQcMa(r.h, r.qc) + ' – nhập giá tay rồi quét lại');
+  themVaoGio(r.h, g.qc, g.qd, g.g, g.g, 1);
+  veThanhGio(); if (S.tab === 'ban') veKetQua();
+  return g;
+}
+async function quetBan(ma) {
+  let r = timMa(ma);
+  if (!r) { r = await ngoaiQuet(() => ganMaMoi(ma)); if (!r) return hienKqQuet('Bỏ qua mã ' + ma); }
+  const g = themTheoMa(r), t = tinhGio();
+  hienKqQuet(`✓ ${r.h.ten} – ${g.qc} ${tien(g.g)} (×${so(soTrongGio(r.h.id, g.qc))})  ·  Đơn: ${S.gio.dong.length} món, ${tien(t.tong)}`, 'tot');
+}
+HD.quetBan = () => moQuet('Quét hàng vào đơn', quetBan, true);
+// Máy quét Bluetooth gõ mã vào ô Tìm rồi Enter → thêm luôn vào đơn
+HD.timEnter = async el => {
+  const ma = el.value.replace(/\s+/g, ''); if (!/^[0-9A-Za-z.\-]{6,48}$/.test(ma)) return;
+  let r = timMa(ma);
+  if (!r) { if (!/^\d{8,14}$/.test(ma)) return; r = await ganMaMoi(ma); if (!r) return; }
+  const g = themTheoMa(r); S.tim = ''; el.value = ''; veKetQua(); bip(true);
+  thongBao('✓ ' + r.h.ten + ' – ' + g.qc, 'tot');
+};
+// ── Tab Hàng: quét để mở món
+HD.quetTimHang = () => moQuet('Quét để tìm hàng', async ma => {
+  const r = timMa(ma) || await ganMaMoi(ma);
+  if (r) await moChiTietHang(r.h.id);
+}, false);
+// ── Chi tiết món: gán thêm mã / bỏ mã
+HD.quetGanMa = () => { const h0 = hangDangXem(); moQuet('Quét mã của ' + h0.ten, async ma => {
+  const h = timHang(h0.id); if (!h) throw new Error('Món này đang ngừng bán – bán lại rồi mới gán mã');
+  if (await ganMaMoi(ma, h)) await taiLaiHangDangXem();
+}, false); };
+HD.goGanMa = async () => {
+  const h = timHang(hangDangXem().id); if (!h) return thongBao('Món này đang ngừng bán – bán lại rồi mới gán mã', 'loi');
+  const v = await hoi('Gõ mã vạch', [{ k: 'ma', nhan: 'Dãy số in dưới mã vạch', kieu: 'sdt' }], 'Tiếp');
+  const ma = v && String(v.ma || '').replace(/\s+/g, '').toUpperCase(); if (!ma) return;
+  if (!/^[0-9A-Z.\-]{4,48}$/.test(ma)) return thongBao('Mã vạch không hợp lệ', 'loi');
+  if (await ganMaMoi(ma, h)) await taiLaiHangDangXem();
+};
+HD.boMaVach = async el => {
+  const h = hangDangXem(), ma = el.dataset.ma;
+  if (!await xacNhan(`Bỏ mã ${ma} khỏi "${h.ten}"?`, 'Bỏ mã')) return;
+  await cho('…', () => rpc('bo_ma_vach', { p_ma: ma }));
+  const hh = timHang(h.id); if (hh && hh.mv) hh.mv = hh.mv.filter(m => m.m !== ma); delete S.mv[ma]; chuanBiHang();
+  luu('bh_hang', { hang: S.hang, taiLuc: S.hangLuc });
+  thongBao('Đã bỏ mã ' + ma, 'tot'); await taiLaiHangDangXem();
+};
+// ── Kiểm kho: quét → nhảy tới ô đếm của món đó
+HD.kkQuet = () => moQuet('Quét món cần đếm', async ma => {
+  const r = timMa(ma); if (!r) throw new Error('Mã ' + ma + ' chưa gán cho món nào');
+  const k = S.kk; if (!k || !k.ds.some(x => x.id === r.h.id)) throw new Error(r.h.ten + ' không phải món chủ lực (chưa theo dõi tồn)');
+  k.tim = r.h.id; k.loc = 'tat'; veBang();
+  const o = document.querySelector(`[data-i=kkGo][data-id="${CSS.escape(r.h.id)}"]`); if (o) setTimeout(() => o.focus(), 60);
+}, false);
+
 // ── 5b. ẢNH: chọn ảnh, gắn thêm ảnh ─────────────────────────────────
 // Xem trước ảnh vừa chọn trong hộp hỏi
 DOI.chonAnh = el => {
@@ -635,7 +868,8 @@ function veBan() {
     <div id="don-tam"></div>
     <button class="chon-khach" data-a="chonKhach"><span>👤</span><span class="gian">Khách: <b>${esc(tenKhachGio())}</b>
       ${kh && kh.con_no > 0 ? `<br><span class="no">Đang nợ ${tien(kh.con_no)}</span>` : ''}</span><span class="mo">Đổi ▾</span></button>
-    <div class="o-tim dong"><input class="o" id="o-tim" type="search" data-i="tim" placeholder="Tìm hàng… (vd: sua th, tiger)" value="${esc(S.tim)}" autocomplete="off">
+    <div class="o-tim dong"><input class="o" id="o-tim" type="search" data-i="tim" data-enter="timEnter" enterkeyhint="search" placeholder="Tìm hàng… (vd: sua th, tiger)" value="${esc(S.tim)}" autocomplete="off">
+      <button class="nut" data-a="quetBan" title="Quét mã vạch bằng camera">📷</button>
       <button class="nut" style="white-space:nowrap" data-a="aiMo" title="Dán tin nhắn hoặc ảnh Zalo, AI tự lên đơn">🤖 Zalo</button></div>
     <div id="ket-qua"></div>`;
   veKetQua(); veDonTam();
@@ -1584,7 +1818,7 @@ function veThem() {
       <div class="muc dong" data-a="doiMatKhau"><span class="gian">🔑 <b>Đổi mật khẩu</b></span>›</div>
       <div class="muc dong" data-a="dangXuat"><span class="gian no">⎋ Đăng xuất</span></div>
     </div>
-    <p class="mo" style="text-align:center">Bản 2.4</p>`;
+    <p class="mo" style="text-align:center">Bản 2.5</p>`;
 }
 // ── HOÁ ĐƠN CHO KẾ TOÁN: Excel + PDF các hoá đơn bán trong 1 tháng (chủ) ──
 // Lấy đơn theo tháng (giờ VN), mỗi lần 1000 đơn cho tới hết, kèm chi tiết món + khách + tiền đã trả.
@@ -1805,7 +2039,7 @@ HD.taiExcel = el => chay(el, 'Đang tạo file…', async () => {
 // Cột của từng trang trong file sao lưu: [tên cột, trường dữ liệu, kiểu, độ rộng]
 const BANG_SAO_LUU = [
   ['Hàng & giá', [['Mã', 'id', 0, 10], ['Tên hàng', 'ten', 0, 34], ['Đơn vị', 'don_vi', 0, 8], ['Danh mục', 'danh_muc', 0, 16], ['Bảng giá', 'bang_gia', 0, 50],
-    ['Giá vốn/đv', 'gia_von'], ['Tồn kho', 'ton_kho', 0, 9], ['Tồn tối thiểu', 'ton_toi_thieu', 0, 9], ['Đang bán', 'dang_ban', 0, 8]], 'hang'],
+    ['Giá vốn/đv', 'gia_von'], ['Tồn kho', 'ton_kho', 0, 9], ['Tồn tối thiểu', 'ton_toi_thieu', 0, 9], ['Đang bán', 'dang_ban', 0, 8], ['Mã vạch', 'ma_vach', 0, 30]], 'hang'],
   ['Khách & nợ', [['Mã', 'id', 0, 8], ['Tên khách', 'ten', 0, 26], ['SĐT', 'sdt', 0, 12], ['Địa chỉ', 'dia_chi', 0, 24], ['Nhóm', 'nhom', 0, 8],
     ['Đang nợ', 'dang_no'], ['Số đơn nợ', 'so_don_no', 0, 8], ['Nợ từ ngày', 'ngay_no_cu_nhat', 'ngay', 16], ['Hạn mức', 'han_muc_no']], 'khach'],
   ['Đơn hàng', [['Mã đơn', 'id', 0, 10], ['Ngày', 'ngay', 'ngay', 16], ['Khách', 'ten_khach', 0, 24], ['Hình thức', 'hinh_thuc', 0, 12], ['Tiền hàng', 'tong_tien_hang'],
@@ -2107,6 +2341,7 @@ function veHang() {
   const dms = [...new Set(S.hang.map(h => h.dm).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
   $('#noi-dung').innerHTML = `
     <div class="o-tim dong"><input class="o" id="o-tim-hang" type="search" data-i="timHangTab" placeholder="Tìm trong ${S.hang.length} mặt hàng…" value="${esc(S.hTim)}" autocomplete="off">
+      ${S.hCheDo ? '' : '<button class="nut" data-a="quetTimHang" title="Quét mã vạch để tìm hàng">📷</button>'}
       ${laChu() ? `<button class="nut${S.hCheDo ? ' chinh' : ''}" data-a="hangCheDoChon">${S.hCheDo ? '✓ Xong' : '☑ Chọn'}</button>
         ${S.hCheDo ? '' : '<button class="nut chinh" data-a="hangMoi">＋</button>'}` : ''}</div>
     <div class="loc">${Object.entries(LOC_HANG).filter(([k]) => k !== 'ngung' || laChu()).map(([k, [t]]) =>
@@ -2211,7 +2446,7 @@ HD.themDongHang = () => { S.hSo += 100; veDsHang(); };
 HD.xemHang = el => moChiTietHang(el.dataset.id);
 
 async function layHang(id) {
-  const r = await api('hang_hoa?select=*,danh_muc(ten),ncc_hang(nha_cung_cap(id,ten,sdt,nguoi_lien_he,sdt_nv)),bang_gia(quy_cach,so_luong_quy_doi,gia_ban,dang_ap_dung,sua_luc)&id=eq.' + id);
+  const r = await api('hang_hoa?select=*,danh_muc(ten),ncc_hang(nha_cung_cap(id,ten,sdt,nguoi_lien_he,sdt_nv)),bang_gia(quy_cach,so_luong_quy_doi,gia_ban,dang_ap_dung,sua_luc),ma_vach(ma,quy_cach,nguoi,tao_luc)&id=eq.' + encodeURIComponent(id));
   if (!r[0]) throw new Error('Không tìm thấy mặt hàng ' + id);
   const h = r[0];
   h.gia = h.bang_gia.filter(g => g.dang_ap_dung).sort((a, b) => a.so_luong_quy_doi - b.so_luong_quy_doi);
@@ -2244,6 +2479,12 @@ function veChiTietHang(h) {
         : `<div class="so-lon ${h.ton_kho <= (h.ton_toi_thieu || 0) ? 'no' : ''}">${so(h.ton_kho)} ${esc(h.don_vi)}</div>
            ${tonTheoQC(h)}${h.ton_toi_thieu != null ? `<span class="mo">Tối thiểu: ${so(h.ton_toi_thieu)} ${esc(h.don_vi)}</span>` : ''}`}
       <div class="hang-nut"><button class="nut" data-a="kiemKho">📋 ${h.ton_kho == null ? 'Bắt đầu theo dõi tồn' : 'Kiểm kho / sửa tồn'}</button></div></div>
+    <div class="the"><h3>Mã vạch</h3>
+      ${(h.ma_vach || []).sort((a, b) => a.tao_luc < b.tao_luc ? -1 : 1).map(m => `<div class="dong" style="margin-top:6px"><span class="gian"><b>${esc(m.ma)}</b>
+        <span class="the-nhan">${esc(m.quy_cach || h.don_vi)}</span>${m.nguoi ? `<br><span class="mo">gán bởi ${esc(m.nguoi)} · ${ngayNgan(m.tao_luc)}</span>` : ''}</span>
+        <button class="nut nho do" data-a="boMaVach" data-ma="${esc(m.ma)}">Bỏ</button></div>`).join('')
+        || '<p class="mo" style="margin:0">Chưa có mã vạch. Quét mã trên lon/chai/gói (và mã trên thùng nếu bán theo thùng).</p>'}
+      ${h.dang_ban ? `<div class="hang-nut"><button class="nut" data-a="quetGanMa">📷 Quét gán mã</button><button class="nut" data-a="goGanMa">⌨ Gõ mã</button></div>` : ''}</div>
     <div class="hang-nut">
       ${h.dang_ban ? `<button class="nut chinh" data-a="banHangNay">🛒 Thêm vào đơn</button>` : ''}
       ${chu ? `<button class="nut" data-a="suaHangDangXem">✎ Sửa tên / giá</button>` : ''}
@@ -2641,7 +2882,8 @@ function veKiemKho() {
   if (!k.ds.length) return `<div class="trong">Chưa có món chủ lực nào.<br><br>Vào tab <b>Hàng</b> → bấm ☑ Chọn → chọn món → <b>⭐ Theo dõi tồn</b>,
     hoặc mở 1 món → <b>📋 Bắt đầu theo dõi tồn</b>.</div>`;
   return `<p class="mo">Đếm thực tế rồi gõ số: <b>5t7</b> = 5 thùng 7 lẻ · <b>3loc</b> = 3 lốc · <b>127</b> = 127 đơn vị lẻ. Gõ xong bấm Enter sang món kế. Chưa lưu thì số gõ vẫn giữ trên máy.</p>
-    <div class="o-tim"><input class="o" data-i="kkTim" placeholder="Tìm trong ${k.ds.length} món chủ lực…" value="${esc(k.tim)}" autocomplete="off"></div>
+    <div class="o-tim dong"><input class="o" data-i="kkTim" placeholder="Tìm trong ${k.ds.length} món chủ lực…" value="${esc(k.tim)}" autocomplete="off">
+      <button class="nut" data-a="kkQuet" title="Quét mã vạch món cần đếm">📷</button></div>
     <div class="loc">${Object.entries(LOC_KK).map(([c, t]) => `<button data-a="kkLoc" data-k="${c}" class="${k.loc === c ? 'chon' : ''}">${t} (${
       k.ds.filter(x => c === 'tat' || (c === 'chua' && !x.dem) || (c === 'cu' && x.dem && soNgayTruoc(x.dem) >= 30) || (c === 'het' && x.ton <= (x.min || 0))).length})</button>`).join('')}</div>
     <div id="kk-ds">${veDsKiemKho(ds)}</div>
