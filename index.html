@@ -200,6 +200,8 @@ setTimeout(function () {
    ===================================================================== */
 
 // ── 1. CẤU HÌNH ──────────────────────────────────────────────────────
+// Số bản hiện ở cuối tab Thêm. MỖI LẦN ĐƯA BẢN MỚI LÊN PHẢI ĐỔI SỐ NÀY (để biết điện thoại đã nhận bản mới chưa).
+const BAN = '2.7';
 const CFG = {
   url: 'https://mrfwdmpdkhnhfblldzba.supabase.co',
   key: 'sb_publishable_92KnloG8NcjLUmpr92s6xw_7yPlsYJ3',  // khoá CÔNG KHAI – để ở đây là an toàn
@@ -321,6 +323,13 @@ function dichLoi(m) {
     [/Failed to fetch|NetworkError|Load failed/i, 'Không kết nối được. Kiểm tra mạng rồi thử lại'],
     [/permission denied/i, 'Bạn không có quyền làm việc này'],
     [/Signups not allowed/i, 'Supabase đang tắt đăng ký – bật lại "Allow new users to sign up"'],
+    // Lỗi kỹ thuật từ máy chủ → câu dễ hiểu (chữ "kết nối" để đơn đang lưu tự vào hàng chờ, gửi lại không trùng)
+    [/JWT expired|invalid JWT|jwt/i, 'Phiên đăng nhập hết hạn – bấm ⟳ hoặc đăng nhập lại'],
+    [/terminating connection|connection (refused|reset|closed)|ECONNRESET|server closed|upstream|Bad Gateway|Service Unavailable|Gateway Time-?out|^Lỗi (máy chủ )?5\d\d/i, 'Máy chủ tạm mất kết nối – thử lại sau ít giây'],
+    [/statement timeout|canceling statement/i, 'Máy chủ xử lý quá lâu – thử lại sau ít giây'],
+    [/duplicate key|unique constraint/i, 'Dữ liệu này đã có rồi (trùng)'],
+    [/violates foreign key/i, 'Không làm được vì dữ liệu này đang được dùng ở chỗ khác (đơn, toa…)'],
+    [/rate limit|Too Many Requests/i, 'Thao tác quá nhanh – đợi một chút rồi thử lại'],
   ];
   for (const [re, vi] of bang) if (re.test(m)) return vi;
   return m;
@@ -1007,8 +1016,15 @@ const noCuGio = () => { const kh = S.gio.kh && S.khach.find(k => k.id === S.gio.
 
 function tinhGio() {
   const tth = S.gio.dong.reduce((s, d) => s + Math.round(d.sl * d.gia), 0);
-  const ck = docTien(S.gio.ck);
+  const ck = docChietKhau(S.gio.ck, tth);
   return { tth, ck, tong: Math.max(tth - ck, 0) };
+}
+// Chiết khấu: "10" = 10.000đ (như gõ tiền) · "5%" = 5% tiền hàng (làm tròn đến 1.000đ)
+function docChietKhau(s, tth) {
+  s = String(s == null ? '' : s).trim();
+  const pt = s.match(/^(\d+(?:[.,]\d+)?)\s*%$/);
+  if (pt) return Math.round(tth * Math.min(Number(pt[1].replace(',', '.')), 100) / 100 / 1000) * 1000;
+  return docTien(s);
 }
 // Thanh "đơn đang lên dở": chỉ hiện khi có từ 2 đơn, hoặc đơn hiện tại đã có món (để mở thêm đơn)
 function veDonTam() {
@@ -1043,8 +1059,9 @@ function veGio() {
         <input value="${so(d.sl)}" inputmode="decimal" data-d="soLuong" data-idx="${i}"><button data-a="themSL" data-i="${i}">+</button></div>
         <div class="gian"></div><b class="tien">${tien(d.sl * d.gia)}</b></div></div>`).join('')}
       <div class="tong-dong" style="margin-top:8px"><span>Tiền hàng</span><b class="tien">${tien(t.tth)}</b></div>
-      <div class="tong-dong"><span>Chiết khấu</span><span style="width:130px"><input class="o" style="padding:6px 10px;text-align:right" inputmode="decimal" data-d="chietKhau" value="${esc(g.ck)}" placeholder="0"></span></div>
-      ${t.ck ? `<div class="tong-dong mo"><span></span><span>− ${tien(t.ck)}</span></div>` : ''}
+      <div class="tong-dong"><span>Chiết khấu</span><span style="width:130px"><input class="o" style="padding:6px 10px;text-align:right" inputmode="decimal" data-d="chietKhau" value="${esc(g.ck)}" placeholder="10k / 5%"></span></div>
+      ${t.ck ? `<div class="tong-dong mo"><span></span><span>− ${tien(t.ck)}${/%/.test(g.ck) ? ' (' + esc(g.ck.trim()) + ')' : ''}</span></div>` : ''}
+      ${t.ck && t.ck >= t.tth ? '<div class="tong-dong"><span></span><span class="no">⚠ Chiết khấu ≥ tiền hàng – kiểm tra lại</span></div>' : ''}
       <div class="tong-dong lon"><span>TỔNG CỘNG</span><span class="tien">${tien(t.tong)}</span></div>
       ${noCuGio() ? `${kemNoCu() ? `<div class="tong-dong"><span>Nợ cũ</span><span class="no tien">${tien(noCuGio())}</span></div>
         <div class="tong-dong" style="font-weight:700"><span>Tổng phải trả</span><span class="tien">${tien(noCuGio() + t.tong)}</span></div>` : ''}${nutNoCu()}` : ''}
@@ -1130,6 +1147,8 @@ HD.luuDon = async el => {
   if (dangLuu) return;
   const g = S.gio; const t = tinhGio();
   if (g.ht === 'Ghi nợ' && !g.kh && !g.khMoi) return thongBao('Ghi nợ thì phải chọn khách', 'loi');
+  // Chiết khấu bằng/lớn hơn tiền hàng → đơn 0đ: gần như chắc gõ nhầm, hỏi lại
+  if (t.ck && t.ck >= t.tth && !await xacNhan(`Chiết khấu ${tien(t.ck)} ≥ tiền hàng ${tien(t.tth)} → đơn thành 0đ. Vẫn lưu?`, 'Vẫn lưu')) return;
   const kh = g.kh && S.khach.find(k => k.id === g.kh.id);
   if (g.ht === 'Ghi nợ' && kh && kh.han_muc_no > 0 && kh.con_no + t.tong > kh.han_muc_no &&
       !await xacNhan(`${kh.ten} sẽ nợ ${tien(kh.con_no + t.tong)}, vượt hạn mức ${tien(kh.han_muc_no)}. Vẫn ghi nợ?`, 'Vẫn ghi nợ')) return;
@@ -1820,7 +1839,7 @@ function veThem() {
       <div class="muc dong" data-a="doiMatKhau"><span class="gian">🔑 <b>Đổi mật khẩu</b></span>›</div>
       <div class="muc dong" data-a="dangXuat"><span class="gian no">⎋ Đăng xuất</span></div>
     </div>
-    <p class="mo" style="text-align:center">Bản 2.6</p>`;
+    <p class="mo" style="text-align:center">Bản ${BAN}</p>`;
 }
 // ── HOÁ ĐƠN CHO KẾ TOÁN: Excel + PDF các hoá đơn bán trong 1 tháng (chủ) ──
 // Lấy đơn theo tháng (giờ VN), mỗi lần 1000 đơn cho tới hết, kèm chi tiết món + khách + tiền đã trả.
@@ -1966,6 +1985,7 @@ function veChotSo() {
       <div class="tong-dong"><span>+ Khách trả tiền mặt</span><span class="tien">${tien(t.thu_tm)}</span></div>
       <div class="tong-dong"><span>− Trả NCC tiền mặt</span><span class="tien">${tien(t.chi_tm)}</span></div>
       <div class="tong-dong lon"><span>Phải có trong két</span><span class="tien" id="cs-phai">${tien(phaiCo())}</span></div>
+      <p class="no" id="cs-am" style="margin:2px 0 0;${phaiCo() < 0 ? '' : 'display:none'}">⚠ Số âm: tiền mặt trả NCC nhiều hơn quỹ đầu ngày + tiền khách trả. Kiểm tra lại quỹ đầu ngày, hoặc có khoản trả NCC lấy từ nguồn khác (ghi chú lại).</p>
       <div class="tong-dong mo" style="border-top:1px dashed var(--vien);margin-top:6px;padding-top:8px"><span>Tham khảo: khách chuyển khoản</span><span class="tien">${tien(t.thu_ck)}</span></div>
       <div class="tong-dong mo"><span>Bán ghi nợ</span><span class="tien">${tien(t.ban_no)}</span></div>
       <div class="tong-dong mo"><span>Số đơn trong ngày</span><span>${t.so_don}</span></div>
@@ -1983,7 +2003,7 @@ function veChotSo() {
 }
 const veLech = n => (n = Number(n)) === 0 ? '<b style="color:var(--chinh)">Khớp ✓</b>' : n > 0 ? `<b style="color:var(--vang)">Thừa ${tien(n)}</b>` : `<b class="no">Thiếu ${tien(-n)}</b>`;
 DOI.csNgay = async el => { S.cs.ngay = el.value || ngayVN(0); try { await taiChotSo(); veBang(); } catch (e) { thongBao(e.message, 'loi'); } };
-GO.csQuy = el => { S.cs.quy = docTien(el.value); $('#cs-phai').textContent = tien(phaiCo()); if (S.cs.dem) $('#cs-lech').innerHTML = veLech(docTien(S.cs.dem) - phaiCo()); };
+GO.csQuy = el => { S.cs.quy = docTien(el.value); $('#cs-phai').textContent = tien(phaiCo()); $('#cs-am').style.display = phaiCo() < 0 ? '' : 'none'; if (S.cs.dem) $('#cs-lech').innerHTML = veLech(docTien(S.cs.dem) - phaiCo()); };
 GO.csDem = el => { S.cs.dem = el.value; $('#cs-lech').innerHTML = el.value ? veLech(docTien(el.value) - phaiCo()) : ''; };
 GO.csRut = el => { S.cs.rut = el.value; };
 HD.csLuu = el => chay(el, 'Đang chốt…', async () => {
