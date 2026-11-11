@@ -581,7 +581,7 @@ function hoi(tieuDe, o, chuNut, ghiChu) {
     let daXong = false;
     const ket = v => { if (daXong) return; daXong = true; xong(v); };
     moBang(tieuDe, () => `
-      ${ghiChu ? `<p class="mo">${ghiChu}</p>` : ''}
+      ${ghiChu ? `<p class="mo" style="white-space:pre-line">${ghiChu}</p>` : ''}
       <form id="hop-hoi">
       ${o.map((f, i) => {
         const id = 'h_' + f.k; const gt = f.gt == null ? '' : f.gt;
@@ -973,6 +973,8 @@ HD.themGiaTay = async el => {
   const daCo = h.gia.find(x => x.qc.toLowerCase() === v.qc.toLowerCase());
   themVaoGio(h, daCo ? daCo.qc : v.qc, daCo ? daCo.qd : (v.qd || 1), v.gia, daCo ? daCo.g : null, v.sl || 1, !daCo && v.luu);
   veKetQua(); veThanhGio();
+  // Giá mới chưa vào bảng giá ngay – chỉ lưu khi bấm Lưu đơn (huỷ đơn = không lưu)
+  if (!daCo && v.luu) thongBao('Đã thêm vào đơn. Giá ' + v.qc + ' ' + tien(v.gia) + ' sẽ vào bảng giá khi bấm Lưu đơn', 'tot');
 };
 
 // Tồn kho viết gọn theo quy cách lớn nhất: 53 hộp (thùng 48) → "1 thùng 5 hộp"
@@ -2280,6 +2282,7 @@ async function formHang(id, tenGoiY) {
   const [dms, r] = await Promise.all([api('danh_muc?select=ten&order=thu_tu,ten'),
     id ? api('hang_hoa?select=*,danh_muc(ten),bang_gia(quy_cach,so_luong_quy_doi,gia_ban,dang_ap_dung)&id=eq.' + id) : Promise.resolve(null)]);
   if (r) { h = r[0]; dmTen = h.danh_muc ? h.danh_muc.ten : ''; h.bang_gia = h.bang_gia.filter(g => g.dang_ap_dung).sort((a, b) => a.so_luong_quy_doi - b.so_luong_quy_doi); }
+  const dangBanLucMo = !!h.dang_ban;   // nhớ trạng thái lúc mở form để hỏi lại nếu bị bỏ tick
   const tam = { dong: h.bang_gia.length ? h.bang_gia.map(g => ({ qc: g.quy_cach, qd: so(g.so_luong_quy_doi), gia: g.gia_ban ? so(g.gia_ban) : '' }))
                                        : [{ qc: h.don_vi || '', qd: '1', gia: '' }] };
   const ve = () => `<form id="form-hang">
@@ -2290,15 +2293,16 @@ async function formHang(id, tenGoiY) {
         <datalist id="dl-dm">${dms.map(d => `<option value="${esc(d.ten)}">`).join('')}</datalist></div></div>
       <label class="nhan">Bảng giá – mỗi dòng 1 quy cách</label>
       <div id="dong-gia">${tam.dong.map((g, i) => `<div class="dong" style="gap:6px;margin-bottom:6px">
-        <input class="o" style="flex:1.2" name="qc${i}" value="${esc(g.qc)}" placeholder="thùng">
-        <input class="o" style="flex:.8" name="qd${i}" value="${esc(g.qd)}" inputmode="decimal" placeholder="SL quy đổi">
+        <input class="o" style="flex:1.2" name="qc${i}" value="${esc(g.qc)}" placeholder="thùng" data-i="xemTienHang">
+        <input class="o" style="flex:.8" name="qd${i}" value="${esc(g.qd)}" inputmode="decimal" placeholder="SL quy đổi" data-i="xemTienHang">
         <input class="o" style="flex:1.3" name="gia${i}" value="${esc(g.gia)}" inputmode="decimal" placeholder="giá" data-i="xemTienHang">
         <button type="button" class="nut-sua" data-a="xoaDongGia" data-i="${i}">✕</button></div>`).join('')}</div>
+      <div id="xem-gia" class="goi-y" style="line-height:1.5;margin-bottom:6px">${xemGia(tam.dong, h.don_vi).html}</div>
       <p class="mo" style="margin:0">Cột giữa: 1 quy cách = bao nhiêu đơn vị nhỏ nhất (thùng 48 hộp → 48). Giá gõ 365 = 365.000đ.</p>
       <button type="button" class="nut nho" data-a="themDongGia">＋ Thêm quy cách</button>
       <label class="nhan">Giá vốn 1 ${esc(h.don_vi || 'đơn vị nhỏ nhất')} (để tính lãi, không bắt buộc)</label>
       <input class="o" name="gia_von" value="${h.gia_von ? so(h.gia_von) : ''}" inputmode="decimal">
-      <label class="dong" style="margin-top:12px"><input type="checkbox" name="dang_ban" ${h.dang_ban ? 'checked' : ''} style="width:20px;height:20px"> Đang bán</label>
+      <div style="margin-top:12px"><label class="dong" style="display:inline-flex"><input type="checkbox" name="dang_ban" ${h.dang_ban ? 'checked' : ''} style="width:20px;height:20px"> Đang bán</label></div>
       <div class="hang-nut"><button type="button" class="nut" data-a="dongBang">Huỷ</button><button class="nut chinh" type="submit">Lưu hàng</button></div></form>`;
   // Giữ chữ đã gõ khi thêm/xoá dòng giá
   const docForm = () => { const f = $('#form-hang'); if (!f) return;
@@ -2312,7 +2316,14 @@ async function formHang(id, tenGoiY) {
     const bg = tam.dong.filter(g => g.qc.trim() && docTien(g.gia) > 0).map(g => ({ quy_cach: g.qc.trim(), so_luong_quy_doi: docSo(g.qd) || 1, gia_ban: docTien(g.gia) }));
     const trung = bg.map(g => g.quy_cach.toLowerCase()).filter((x, i, a) => a.indexOf(x) !== i);
     if (trung.length) return thongBao('Trùng quy cách: ' + trung[0], 'loi');
-    const nut = ev.submitter || $('#form-hang [type=submit]');
+    // Kiểm tra lại trước khi lưu: giá quy cách lớn lệch nhiều so với giá lẻ (gõ thừa/thiếu số 0)
+    const xg = xemGia(tam.dong, h.don_vi);
+    if (xg.canhBao.length && !await xacNhan('Kiểm tra lại giá:\n' + xg.canhBao.join('\n') + '\n\nVẫn lưu?', 'Vẫn lưu')) return ganNop();
+    // Bỏ tick "Đang bán" (dễ chạm nhầm khi bàn phím đóng) → món sẽ ẩn khỏi trang Bán
+    if (id && dangBanLucMo && !h.dang_ban && !await xacNhan(`Bỏ tick "Đang bán": "${h.ten}" sẽ ẨN khỏi trang Bán và tìm hàng. Ngừng bán món này?`, 'Ngừng bán')) {
+      h.dang_ban = true; veBang(); return ganNop(); }
+    if (xg.canhBao.length || (id && dangBanLucMo && !h.dang_ban)) ganNop();
+    const nut = $('#form-hang [type=submit]') || ev.submitter;
     const kq = await chay(nut, 'Đang lưu…', () => rpc('luu_hang_hoa', { p: { id: id || null, ten: h.ten.trim(), don_vi: h.don_vi.trim() || null,
       danh_muc: dmTen.trim() || null, gia_von: h.gia_von, dang_ban: h.dang_ban, bang_gia: bg } }))
       .catch(e => { thongBao(e.message, 'loi'); return null; });
@@ -2323,9 +2334,31 @@ async function formHang(id, tenGoiY) {
     if (S.bangs.length && S.bangs[S.bangs.length - 1].hx) { dongBang(); moChiTietHang(kq.id); }
     if (S.bangs.length) { const b = S.bangs[S.bangs.length - 1]; if (/^Điền giá nhanh/.test(b.tieuDe)) { S.bangs.pop(); HD.hangChuaGia(); } else veBang(); }
   }; };
+  // Gõ giá / quy cách / số lượng quy đổi → cập nhật dòng xem trước ngay dưới bảng giá
+  GO.xemTienHang = () => { const f = $('#form-hang'), o = $('#xem-gia'); if (!f || !o) return;
+    o.innerHTML = xemGia(tam.dong.map((g, i) => ({ qc: f['qc' + i].value, qd: f['qd' + i].value, gia: f['gia' + i].value })), f.don_vi.value).html; };
   moBang(id ? 'Sửa hàng ' + id : 'Thêm mặt hàng', ve); ganNop();
 }
-GO.xemTienHang = el => { el.title = tien(docTien(el.value)); };
+// Xem trước bảng giá: "Xách (5 gói) = 72.000đ → 14.400đ/gói" và cảnh báo giá lệch.
+// Lệch = giá 1 đơn vị nhỏ nhất của quy cách lớn ĐẮT HƠN giá lẻ, hoặc RẺ HƠN một nửa giá lẻ
+// (thường do gõ thừa / thiếu số 0: 720 = 720.000đ, 7200 = 7.200đ).
+function xemGia(dong, dv) {
+  dv = (dv || '').trim() || 'đv';
+  const ds = dong.filter(g => String(g.qc).trim() && docTien(g.gia) > 0)
+    .map(g => ({ qc: String(g.qc).trim(), qd: docSo(g.qd) || 1, gia: docTien(g.gia) }));
+  const le = ds.filter(g => g.qd === 1)[0];
+  const canhBao = [];
+  const html = ds.map(g => {
+    const moi = g.gia / g.qd; let lech = '';
+    if (le && g.qd > 1 && (moi > le.gia * 1.05 || moi < le.gia * 0.5)) {
+      lech = moi > le.gia ? 'đắt hơn giá lẻ' : 'rẻ hơn nửa giá lẻ';
+      canhBao.push(`• ${g.qc} ${tien(g.gia)} = ${tien(moi)}/${dv}, ${lech} (${tien(le.gia)})`);
+    }
+    return `<div${lech ? ' style="color:var(--do);font-weight:600"' : ''}>${esc(g.qc)}${g.qd > 1 ? ` (${so(g.qd)} ${esc(dv)})` : ''} = ${tien(g.gia)}`
+      + (g.qd > 1 ? ` → ${tien(moi)}/${esc(dv)}` : '') + (lech ? ` ⚠ ${lech}` : '') + '</div>';
+  }).join('');
+  return { html: html || 'Gõ giá: 15 = 15.000đ · 72 = 72.000đ · 720 = 720.000đ', canhBao };
+}
 
 // ── 9b. TAB HÀNG HOÁ ─────────────────────────────────────────────────
 // Danh sách toàn bộ hàng: tìm, lọc theo danh mục / chưa có giá / sắp hết / ngừng bán.
