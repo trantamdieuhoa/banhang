@@ -213,7 +213,7 @@ setTimeout(function () {
 
 // ── 1. CẤU HÌNH ──────────────────────────────────────────────────────
 // Số bản hiện ở cuối tab Thêm. MỖI LẦN ĐƯA BẢN MỚI LÊN PHẢI ĐỔI SỐ NÀY (để biết điện thoại đã nhận bản mới chưa).
-const BAN = '3.2';
+const BAN = '3.3';
 const CFG = {
   url: 'https://mrfwdmpdkhnhfblldzba.supabase.co',
   key: 'sb_publishable_92KnloG8NcjLUmpr92s6xw_7yPlsYJ3',  // khoá CÔNG KHAI – để ở đây là an toàn
@@ -1863,6 +1863,7 @@ function veChiTietDon(x) {
       <button class="nut" data-a="anhHD">🖼 Ảnh hoá đơn</button>
       <button class="nut" data-a="inHD">🖨 In</button>
       <button class="nut" data-a="lenLaiDon">↻ Lên lại đơn này</button>
+      ${!huy && coQuyen('tra_hang') && ct.some(c => Number(c.so_luong) > 0) ? `<button class="nut" data-a="traTuDon">↩ Trả hàng</button>` : ''}
       ${!huy && !tt.length && coQuyen('huy_don') ? `<button class="nut do" data-a="huyDon">Huỷ đơn</button>` : ''}
     </div>
     ${!huy && no > 0 && (S.cauHinh.ngan_hang || {}).so_tk ? `<div class="mo" style="margin-top:10px">Thông tin CK trên hoá đơn in / ảnh / copy:</div>
@@ -1924,6 +1925,36 @@ HD.huyDon = async () => {
     'Hàng sẽ được cộng lại tồn kho. Nhân viên chỉ huỷ được đơn của mình trong 30 phút.');
   if (!v) return;
   await rpc('huy_don_hang', { p_id: d.id, p_ly_do: v.lydo || null }); thongBao('Đã huỷ đơn', 'tot'); await taiLaiDon();
+};
+// Trả hàng từ 1 đơn cũ: hiện sẵn các món của đơn, chọn số lượng trả → mở giỏ mới của đúng khách với các dòng trả,
+// giá trả = giá thực bán trong đơn đó (đã trừ giảm giá dòng). Lưu như đơn trả hàng bình thường (TH01): trừ nợ cũ trước, còn lại trả khách.
+HD.traTuDon = async () => {
+  const { d, ct } = donDangMo();
+  const dong = ct.filter(c => Number(c.so_luong) > 0);
+  const v = await hoi('Trả hàng từ đơn ' + d.id, [
+    ...dong.map((c, i) => ({ k: 'sl' + i, nhan: `${c.ten_hang} – đã mua ${so(c.so_luong)} ${c.quy_cach} × ${so(c.don_gia - c.giam_gia)}`, kieu: 'so', goiY: 'Số ' + c.quy_cach + ' trả (bỏ trống = không trả)' })),
+    { k: 'lyDo', nhan: 'Lý do', kieu: 'chon', ds: LY_DO_TRA, gt: LY_DO_TRA[0] },
+    { k: 'tot', nhan: 'Hàng còn bán được (cộng lại vào kho)', kieu: 'hop', gt: false },
+    { k: 'doiLai', nhan: 'Khách muốn đổi lấy hàng MỚI sau (không trừ tiền, đơn sau nhắc)', kieu: 'hop', gt: false },
+  ], 'Tiếp', Number(d.chiet_khau) ? `<span class="no">Đơn này có chiết khấu ${tien(d.chiet_khau)} – giá trả chưa trừ chiết khấu, sửa tay trong giỏ nếu cần.</span>` : '');
+  if (!v) return;
+  const chon = dong.map((c, i) => ({ c, sl: Number(v['sl' + i]) || 0 })).filter(x => x.sl > 0);
+  if (!chon.length) return thongBao('Chưa nhập số lượng trả món nào', 'loi');
+  const vuot = chon.find(x => x.sl > Number(x.c.so_luong));
+  if (vuot) return thongBao(`${vuot.c.ten_hang}: trả ${so(vuot.sl)} mà đơn chỉ có ${so(vuot.c.so_luong)} ${vuot.c.quy_cach}`, 'loi');
+  if (!moGioMoi()) return;   // đơn đang lên dở vẫn giữ, mở thêm giỏ mới
+  const khId = d.khach_hang_id || 'KHLE';
+  S.gio.kh = khId === 'KHLE' ? null : { id: khId, ten: d.ten_khach, sdt: d.sdt_khach };
+  S.gio.gc = 'Trả hàng từ đơn ' + d.id;   // ghi chú để sau này tra được trả từ đơn nào
+  for (const { c, sl } of chon) {
+    const qd = Number(c.so_luong_quy_doi) || 1, gia = Number(c.don_gia) - Number(c.giam_gia || 0);
+    // Số còn được trả (trừ phần đã trả trước đó) – máy chủ kiểm lại lúc lưu; mất mạng thì để trống
+    let g = null; try { g = await rpc('gia_tra_hang', { p_kh: khId, p_hh: c.hang_hoa_id, p_qc: c.quy_cach }); } catch (e) {}
+    S.gio.tra.push({ id: c.hang_hoa_id, ten: c.ten_hang, qc: c.quy_cach, qd, sl, gia, lyDo: v.lyDo, tot: !!v.tot, doiLai: !!v.doiLai,
+      kh: khId, conDuoc: g ? Number(g.con_duoc_tra) : null, giaGoi: gia, tuDon: d.id });
+  }
+  luuGio(); S.bangs = []; veBang(); S.tab = 'ban'; veKhung(); moBang('Đơn hàng', veGio);
+  thongBao('Đã đưa ' + chon.length + ' món trả vào giỏ – kiểm lại rồi bấm Lưu', 'tot');
 };
 HD.lenLaiDon = async () => {
   const { d, ct } = donDangMo();
