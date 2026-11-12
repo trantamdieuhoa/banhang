@@ -211,7 +211,7 @@ setTimeout(function () {
 
 // ── 1. CẤU HÌNH ──────────────────────────────────────────────────────
 // Số bản hiện ở cuối tab Thêm. MỖI LẦN ĐƯA BẢN MỚI LÊN PHẢI ĐỔI SỐ NÀY (để biết điện thoại đã nhận bản mới chưa).
-const BAN = '2.9';
+const BAN = '3.0';
 const CFG = {
   url: 'https://mrfwdmpdkhnhfblldzba.supabase.co',
   key: 'sb_publishable_92KnloG8NcjLUmpr92s6xw_7yPlsYJ3',  // khoá CÔNG KHAI – để ở đây là an toàn
@@ -233,6 +233,18 @@ const CFG = {
 
 // Link Zalo theo SĐT. Viết '...' (không dùng `...`) vì Apps Script cắt mất phần sau "//" trong chuỗi `...`
 const ZALO = 'https:' + '//zalo.me/';
+// ── Hồ sơ khách (KH01): ten = tên quán (hoặc tên người), ten_chu = tên thật chủ quán, sdt/sdt2/sdt3, zalo, zalo_link
+const sdtKhach = k => [k.sdt, k.sdt2, k.sdt3].map(chiSo).filter(Boolean);
+// Link Zalo: link dán riêng > zalo.me/<số Zalo> > zalo.me/<SĐT 1>
+function zaloKhach(k) {
+  if (!k) return '';
+  const l = (k.zalo_link || '').trim(); if (l) return /^https?:/i.test(l) ? l : 'https://' + l.replace(/^\/+/, '');
+  const s = chiSo(k.zalo) || chiSo(k.sdt); return s ? ZALO + s : '';
+}
+// Chuỗi tìm kiếm: tên quán + tên chủ + 3 số điện thoại + số Zalo + mã
+const chuoiTimKhach = k => boDau((k.ten || '') + ' ' + (k.ten_chu || '')) + ' ' + [...sdtKhach(k), chiSo(k.zalo)].join(' ') + ' ' + k.id.toLowerCase();
+// Thông tin đầy đủ của khách theo mã (danh sách đã tải trên máy)
+const khTheoId = id => (S.khach || []).find(k => k.id === id);
 const NGAN_HANG = [
   ['970436','Vietcombank'],['970415','VietinBank'],['970418','BIDV'],['970405','Agribank'],
   ['970407','Techcombank'],['970422','MB Bank'],['970416','ACB'],['970432','VPBank'],
@@ -519,7 +531,7 @@ async function taiHang(imLang) {
 }
 async function taiKhach() {
   S.khach = await rpc('lay_khach_hang'); luu('bh_khach', S.khach);
-  S.khach.forEach(k => { k._t = boDau(k.ten) + ' ' + chiSo(k.sdt) + ' ' + k.id.toLowerCase(); });
+  S.khach.forEach(k => { k._t = chuoiTimKhach(k); });
 }
 async function taiCauHinh() {
   const r = await api('cau_hinh?select=khoa,gia_tri');
@@ -1138,7 +1150,7 @@ function veChonKhach() {
 }
 function veDsChonKhach(ds) {
   return `<div class="muc dong" data-a="datKhach" data-id=""><span class="gian"><b>Khách lẻ</b> <span class="mo">(không ghi tên)</span></span></div>` +
-    ds.map(k => `<div class="muc dong" data-a="datKhach" data-id="${esc(k.id)}"><span class="gian"><b>${esc(k.ten)}</b><br><span class="mo">${esc(k.sdt || '')} ${esc(k.id)}</span></span>
+    ds.map(k => `<div class="muc dong" data-a="datKhach" data-id="${esc(k.id)}"><span class="gian"><b>${esc(k.ten)}</b>${k.ten_chu ? ' <span class="mo">· ' + esc(k.ten_chu) + '</span>' : ''}<br><span class="mo">${esc(k.sdt || '')} ${esc(k.id)}</span></span>
       ${k.con_no > 0 ? `<span class="no tien">${tien(k.con_no)}</span>` : ''}</div>`).join('');
 }
 GO.timKhachGio = el => {
@@ -1742,7 +1754,7 @@ function veChiTietDon(x) {
   return `
     <div class="the"><div class="dong"><div class="gian"><b style="font-size:17px">${esc(d.ten_khach)}</b> ${nhanDon(d)}<br>
       <span class="mo">${ngayDayDu(d.ngay)} · ${esc(d.hinh_thuc)}${d.nguoi_tao ? ' · ' + esc(d.nguoi_tao) : ''}</span></div>
-      ${d.sdt_khach ? `<a class="nut nho" href="tel:${chiSo(d.sdt_khach)}">📞</a>` : ''}</div>
+      ${d.sdt_khach ? `<a class="nut nho" href="tel:${chiSo(d.sdt_khach)}">📞</a>` : ''}${zaloKhach(khTheoId(d.khach_hang_id)) && d.khach_hang_id !== 'KHLE' ? `<a class="nut nho" href="${esc(zaloKhach(khTheoId(d.khach_hang_id)))}" target="_blank" rel="noopener">Zalo</a>` : ''}</div>
       ${d.ghi_chu ? `<p style="margin:8px 0 0">📝 ${esc(d.ghi_chu)}</p>` : ''}
       ${huy ? `<p class="no" style="margin:8px 0 0">Đã huỷ${d.ly_do_huy ? ': ' + esc(d.ly_do_huy) : ''}</p>` : ''}
       ${huy ? '' : d.da_giao ? (d.nguoi_giao ? `<p class="mo" style="margin:8px 0 0">🚚 Đã giao ${ngayGio(d.giao_luc)} · ${esc(d.nguoi_giao)}
@@ -1861,7 +1873,8 @@ HD.lenLaiDon = async () => {
 const noCuIn = x => x.d.trang_thai !== 'huy' && kemNoCu() ? (x.noCu || 0) : 0;
 function chuHoaDon(x) {
   const { d, ct } = x; const shop = S.cauHinh.cua_hang || {};
-  const l = [`🧾 ${shop.ten || 'HOÁ ĐƠN'} – ${d.id}`, ngayDayDu(d.ngay), 'Khách: ' + d.ten_khach, ''];
+  const kc = khTheoId(d.khach_hang_id) || {};
+  const l = [`🧾 ${shop.ten || 'HOÁ ĐƠN'} – ${d.id}`, ngayDayDu(d.ngay), 'Khách: ' + d.ten_khach + (kc.ten_chu ? ' (' + kc.ten_chu + ')' : ''), ''];
   ct.forEach((c, i) => l.push(`${i + 1}. ${c.ten_hang}\n   ${so(c.so_luong)} ${c.quy_cach} x ${so(c.don_gia - c.giam_gia)} = ${so(c.thanh_tien)}`));
   l.push('');
   if (Number(d.chiet_khau) || dongTruDon(d).length) l.push('Tiền hàng: ' + tien(d.tong_tien_hang));
@@ -1899,7 +1912,10 @@ async function veAnhHoaDon(x, khongQR) {
   if (shop.dia_chi) chia(shop.dia_chi, W - 2 * P, F(19)).forEach(t => viet(t, F(19), 'center', 25, '#333'));
   if (shop.sdt) viet('ĐT: ' + shop.sdt, F(19), 'center', 25, '#333');
   y += 6; viet('HOÁ ĐƠN ' + d.id, F(24, 1), 'center', 32); viet(ngayDayDu(d.ngay), F(19), 'center', 26, '#333');
-  ke(); viet('Khách: ' + d.ten_khach + (d.sdt_khach ? ' – ' + d.sdt_khach : ''), F(21, 1), 'left', 30); ke();
+  const kc = khTheoId(d.khach_hang_id) || {};
+  ke(); viet('Khách: ' + d.ten_khach + (d.sdt_khach ? ' – ' + d.sdt_khach : ''), F(21, 1), 'left', 30);
+  if (kc.ten_chu) viet('Chủ quán: ' + kc.ten_chu, F(19), 'left', 26);
+  if (kc.dia_chi) chia('Đ/c: ' + kc.dia_chi, W - 2 * P, F(19)).forEach(s => viet(s, F(19), 'left', 26)); ke();
   ct.forEach((r, i) => {
     chia((i + 1) + '. ' + r.ten_hang, W - 2 * P, F(21, 1)).forEach(t => viet(t, F(21, 1), 'left', 28));
     hai('    ' + so(r.so_luong) + ' ' + r.quy_cach + ' × ' + so(r.don_gia - r.giam_gia), so(r.thanh_tien), F(21), 30);
@@ -1958,7 +1974,7 @@ HD.inHD = async el => {
   const ck = no > 0 && kieu !== 'khong' && nh.so_tk ? `<hr><div class="giua">${lq ? `<img src="${lq}" alt="" style="width:46mm;display:block;margin:0 auto 2px">` : ''}
     <b>${esc(nh.ten_ngan_hang || '')} ${esc(nh.so_tk)}</b><br>${esc(nh.ten_tk || '')}<br>Nội dung CK: <b>${esc(d.id)}</b></div>` : '';
   $('#vung-in').innerHTML = `<div class="giua"><b style="font-size:15px">${esc(shop.ten || '')}</b><br>${esc(shop.dia_chi || '')}${shop.sdt ? '<br>ĐT: ' + esc(shop.sdt) : ''}
-    <br><b>HOÁ ĐƠN ${esc(d.id)}</b><br>${ngayDayDu(d.ngay)}</div><hr>Khách: <b>${esc(d.ten_khach)}</b><hr>
+    <br><b>HOÁ ĐƠN ${esc(d.id)}</b><br>${ngayDayDu(d.ngay)}</div><hr>Khách: <b>${esc(d.ten_khach)}</b>${(khTheoId(d.khach_hang_id) || {}).ten_chu ? '<br>Chủ quán: ' + esc(khTheoId(d.khach_hang_id).ten_chu) : ''}${(khTheoId(d.khach_hang_id) || {}).dia_chi ? '<br>Đ/c: ' + esc(khTheoId(d.khach_hang_id).dia_chi) : ''}<hr>
     <table>${ct.map(c => `<tr><td colspan="2">${esc(c.ten_hang)}</td></tr><tr><td>&nbsp;${so(c.so_luong)} ${esc(c.quy_cach)} × ${so(c.don_gia - c.giam_gia)}</td><td class="phai">${so(c.thanh_tien)}</td></tr>`).join('')}</table><hr>
     <table>${Number(d.chiet_khau) || dongTruDon(d).length ? `<tr><td>Tiền hàng</td><td class="phai">${so(d.tong_tien_hang)}</td></tr>` : ''}
     ${Number(d.chiet_khau) ? `<tr><td>Chiết khấu</td><td class="phai">-${so(d.chiet_khau)}</td></tr>` : ''}
@@ -1998,13 +2014,19 @@ async function taiLaiKhach() {
 }
 const khachDangMo = () => S.bangs[S.bangs.length - 1].kx;
 function veChiTietKhach(x) {
-  const { k, no, gan, tongNo } = x; const sdt = chiSo(k.sdt); const laLe = k.id === 'KHLE';
+  const { k, no, gan, tongNo } = x; const laLe = k.id === 'KHLE';
   const qr = tongNo > 0 && !laLe ? linkQR(tongNo, 'NO ' + k.id) : '';
+  const zl = zaloKhach(k);
+  // Mỗi số 1 dòng, có nút gọi
+  const dongSo = [['SĐT 1', k.sdt], ['SĐT 2', k.sdt2], ['SĐT 3', k.sdt3]].filter(([, s]) => chiSo(s)).map(([n, s]) =>
+    `<div class="dong" style="margin-top:6px"><span class="gian"><span class="mo">${n}</span> <b>${esc(s)}</b></span><a class="nut nho" href="tel:${chiSo(s)}">📞 Gọi</a></div>`).join('');
   return `
-    <div class="the"><div class="dong"><div class="gian"><span class="mo">${esc(k.id)} · ${esc(k.nhom)}${k.khoa ? ' · <span class="no">đã khoá</span>' : ''}</span>
-      ${k.sdt ? `<br>${esc(k.sdt)}` : ''}${k.dia_chi ? `<br><span class="mo">${esc(k.dia_chi)}</span>` : ''}
-      ${k.ghi_chu ? `<br><span class="mo">📝 ${esc(k.ghi_chu)}</span>` : ''}</div>
-      ${sdt ? `<a class="nut nho" href="tel:${sdt}">📞</a><a class="nut nho" href="${ZALO}${sdt}" target="_blank" rel="noopener">Zalo</a>` : ''}</div>
+    <div class="the">${k.ten_chu ? `<div style="font-size:15px">👤 <b>${esc(k.ten_chu)}</b> <span class="mo">(chủ quán)</span></div>` : ''}
+      <span class="mo">${esc(k.id)} · ${esc(k.nhom)}${k.khoa ? ' · <span class="no">đã khoá</span>' : ''}</span>
+      ${k.dia_chi ? `<div style="margin-top:4px">📍 ${esc(k.dia_chi)}</div>` : ''}
+      ${dongSo}
+      ${zl ? `<a class="nut" style="display:block;text-align:center;margin-top:8px;background:#0068ff;border-color:#0068ff;color:#fff" href="${esc(zl)}" target="_blank" rel="noopener">💬 Mở Zalo${chiSo(k.zalo) && chiSo(k.zalo) !== chiSo(k.sdt) ? ' (' + esc(k.zalo) + ')' : ''}</a>` : ''}
+      ${k.ghi_chu ? `<div class="mo" style="margin-top:6px">📝 ${esc(k.ghi_chu)}</div>` : ''}
       <div class="dong" style="margin-top:10px"><div class="gian"><span class="mo">Đang nợ</span><div class="so-lon ${tongNo ? 'no' : ''} tien">${tien(tongNo)}</div></div>
         ${k.han_muc_no > 0 ? `<span class="mo">hạn mức ${tien(k.han_muc_no)}</span>` : ''}</div>
       <div class="hang-nut">
@@ -2035,7 +2057,7 @@ HD.thuNo = async () => {
 };
 function tinNhacNo(k, no) {
   const shop = (S.cauHinh.cua_hang || {}).ten || 'cửa hàng', tong = no.reduce((s, d) => s + Number(d.con_no), 0);
-  return `Chào anh/chị ${k.ten}, ${shop} xin gửi các đơn chưa thanh toán:\n` +
+  return `Chào anh/chị ${k.ten_chu || k.ten}, ${shop} xin gửi các đơn chưa thanh toán:\n` +
     no.map(d => `• ${d.id} (${ngayNgan(d.ngay)}): ${tien(d.con_no)}`).join('\n') +
     `\nTỔNG CÒN NỢ: ${tien(tong)}\n` + (dongCK('NO ' + k.id) ? '\n' + dongCK('NO ' + k.id) + '\n' : '') + '\nCảm ơn anh/chị!';
 }
@@ -2049,8 +2071,14 @@ HD.lenDonChoKhach = () => {
 async function formKhach(k) {
   k = k || {};
   const v = await hoi(k.id ? 'Sửa ' + k.ten : 'Thêm khách', [
-    { k: 'ten', nhan: 'Tên khách', gt: k.ten }, { k: 'sdt', nhan: 'Số điện thoại', kieu: 'sdt', gt: k.sdt },
+    { k: 'ten', nhan: 'Tên quán (khách nhà thì ghi tên người)', gt: k.ten, goiY: 'VD: Quán cơm Bà Ba' },
+    { k: 'ten_chu', nhan: 'Tên thật chủ quán', gt: k.ten_chu, goiY: 'VD: Nguyễn Thị Ba' },
     { k: 'dia_chi', nhan: 'Địa chỉ', gt: k.dia_chi },
+    { k: 'sdt', nhan: 'SĐT 1 (số chính)', kieu: 'sdt', gt: k.sdt },
+    { k: 'sdt2', nhan: 'SĐT 2', kieu: 'sdt', gt: k.sdt2 },
+    { k: 'sdt3', nhan: 'SĐT 3', kieu: 'sdt', gt: k.sdt3 },
+    { k: 'zalo', nhan: 'Số Zalo (để trống = dùng SĐT 1)', kieu: 'sdt', gt: k.zalo },
+    { k: 'zalo_link', nhan: 'Link Zalo riêng (để trống = app tự tạo từ số Zalo)', gt: k.zalo_link, goiY: 'VD: zalo.me/0905123456' },
     { k: 'nhom', nhan: 'Nhóm', gt: k.nhom || 'Mới', list: ['Mới', 'Quen', 'Sỉ', 'Quán', 'Khách lẻ'] },
     { k: 'han_muc_no', nhan: 'Hạn mức nợ (để trống = không giới hạn)', kieu: 'tien', gt: k.han_muc_no || '' },
     { k: 'ghi_chu', nhan: 'Ghi chú', gt: k.ghi_chu },
@@ -2058,10 +2086,15 @@ async function formKhach(k) {
   ], k.id ? 'Lưu' : 'Thêm khách');
   if (!v) return null;
   if (!v.ten) { thongBao('Chưa nhập tên', 'loi'); return null; }
-  const sdtMoi = chiSo(v.sdt);
-  const trung = S.khach.find(x => x.id !== k.id && ((sdtMoi && chiSo(x.sdt) === sdtMoi) || boDau(x.ten) === boDau(v.ten)));
+  // Trùng: cùng tên quán, hoặc BẤT KỲ số nào trong 3 số trùng với số của khách khác
+  const soMoi = sdtKhach(v);
+  const trung = S.khach.find(x => x.id !== k.id && (sdtKhach(x).some(s => soMoi.includes(s)) || boDau(x.ten) === boDau(v.ten)));
   if (trung && !await xacNhan(`Đã có khách "${trung.ten}" (${trung.sdt || trung.id}) trùng tên/SĐT. Vẫn lưu?`, 'Vẫn lưu')) return null;
-  const dl = { ten: v.ten, sdt: v.sdt || null, dia_chi: v.dia_chi || null, nhom: v.nhom || 'Mới', han_muc_no: v.han_muc_no || 0, ghi_chu: v.ghi_chu || null, khoa: v.khoa };
+  const link = (v.zalo_link || '').trim();
+  if (link && !/zalo\.me|zaloapp\.com|^https?:/i.test(link)) { thongBao('Link Zalo không đúng (phải có zalo.me)', 'loi'); return null; }
+  const dl = { ten: v.ten, ten_chu: v.ten_chu || null, sdt: v.sdt || null, sdt2: v.sdt2 || null, sdt3: v.sdt3 || null,
+    zalo: v.zalo || null, zalo_link: link || null,
+    dia_chi: v.dia_chi || null, nhom: v.nhom || 'Mới', han_muc_no: v.han_muc_no || 0, ghi_chu: v.ghi_chu || null, khoa: v.khoa };
   const r = k.id ? await sua('khach_hang', 'id=eq.' + k.id, dl) : await ghi('khach_hang', dl);
   thongBao('Đã lưu khách', 'tot'); await taiKhach(); return r[0];
 }
@@ -2073,7 +2106,7 @@ function veKhach() {
   $('#noi-dung').innerHTML = `<div class="chips" style="margin:0 0 8px">
       <button class="chip${S.kLoc === 'no' ? '' : ' phu'}" data-a="locKhach" data-k="no">💰 Đang nợ</button>
       <button class="chip${S.kLoc === 'tat' ? '' : ' phu'}" data-a="locKhach" data-k="tat">👥 Tất cả khách (${S.khach.length})</button></div>
-    <div class="o-tim dong"><input class="o" data-i="timKhachTab" placeholder="Tìm tên / SĐT" value="${esc(S.timKhach)}" autocomplete="off">
+    <div class="o-tim dong"><input class="o" data-i="timKhachTab" placeholder="Tìm tên quán / tên chủ / SĐT" value="${esc(S.timKhach)}" autocomplete="off">
     <button class="nut chinh" data-a="themKhach">＋</button></div><div id="ds-khach"></div>`;
   veDsKhach();
   if (S.kLoc === 'no') taiNo().then(() => { if (S.tab === 'khach' && S.kLoc === 'no') veDsKhach(); })
@@ -2093,25 +2126,25 @@ function veNhacNo() {
   return `<div class="chips" style="margin:0 0 8px">${[[7, 'Nợ quá 7 ngày'], [15, '> 15 ngày'], [30, '> 30 ngày'], [0, 'Tất cả']].map(([n, t]) =>
       `<button class="chip${g.ngay === n ? '' : ' phu'}" data-a="nhLoc" data-n="${n}">${t}</button>`).join('')}</div>
     <p class="mo">${ds.length} khách · ${tien(ds.reduce((s, k) => s + Number(k.tong_no), 0))}. Bấm <b>📋 Copy</b> (app tự ghi đã nhắc) → bấm <b>Zalo</b> → dán gửi.</p>
-    <div class="the ds">${ds.map(k => { const sdt = chiSo(k.sdt), da = k.nhac ? soNgayTruoc(k.nhac) : null;
+    <div class="the ds">${ds.map(k => { const sdt = chiSo(k.sdt), da = k.nhac ? soNgayTruoc(k.nhac) : null, zl = zaloKhach(Object.assign({}, khTheoId(k.id) || {}, k));
       return `<div class="muc"><div class="dong"><span class="gian"><b>${esc(k.ten)}</b><br>
           <span class="mo">nợ từ ${soNgayTruoc(k.ngay_no_cu_nhat)} ngày · ${k.so_don_no} đơn · </span>
           <span class="${da == null ? 'no' : 'mo'}">${da == null ? 'chưa nhắc' : da === 0 ? '✓ đã nhắc hôm nay' : 'nhắc ' + da + ' ngày trước'}</span></span>
           <b class="no tien">${tien(k.tong_no)}</b></div>
         <div class="hang-nut" style="margin-top:6px"><button class="nut" data-a="nhCopy" data-id="${esc(k.id)}">📋 Copy tin</button>
-          ${sdt ? `<a class="nut" href="${ZALO}${sdt}" target="_blank" rel="noopener">Zalo</a><a class="nut" href="tel:${sdt}">📞</a>` : '<span class="mo" style="align-self:center">chưa có SĐT</span>'}
+          ${zl ? `<a class="nut" href="${esc(zl)}" target="_blank" rel="noopener">Zalo</a>` : ''}${sdt ? `<a class="nut" href="tel:${sdt}">📞</a>` : ''}${!zl && !sdt ? '<span class="mo" style="align-self:center">chưa có SĐT</span>' : ''}
           <button class="nut" data-a="moKhach" data-id="${esc(k.id)}">Xem</button></div></div>`; }).join('') || '<div class="trong">Không có khách nào nợ quá ' + g.ngay + ' ngày 🎉</div>'}</div>`;
 }
 HD.nhLoc = el => { S.nh.ngay = +el.dataset.n; veBang(); };
 HD.nhCopy = async el => {
-  const k = S.nh.ds.find(x => x.id === el.dataset.id);
+  const k = Object.assign({}, khTheoId(el.dataset.id) || {}, S.nh.ds.find(x => x.id === el.dataset.id));
   const no = await api('v_don_hang?' + COT_DON + '&khach_hang_id=eq.' + k.id + '&con_no=gt.0&order=ngay');
   await copy(tinNhacNo(k, no));
   await rpc('da_nhac_no', { p_kh: k.id }); k.nhac = new Date().toISOString(); veBang();
 };
 async function taiNo() {
   S.noDs = await api('v_cong_no_khach?select=*&order=tong_no.desc');
-  S.noDs.forEach(k => { k._t = boDau(k.ten) + ' ' + chiSo(k.sdt) + ' ' + k.id.toLowerCase(); });
+  S.noDs.forEach(k => { Object.assign(k, Object.assign({}, khTheoId(k.id) || {}, k)); k._t = chuoiTimKhach(k); });
 }
 const locTimKhach = ds => { const q = boDau(S.timKhach), qs = chiSo(S.timKhach);
   return ds.filter(k => !q || k._t.includes(q) || (qs.length >= 3 && k._t.includes(qs))); };
@@ -2122,14 +2155,14 @@ function veDsKhach() {
     const ds = locTimKhach(S.noDs), tong = S.noDs.reduce((s, k) => s + Number(k.tong_no), 0);
     o.innerHTML = `<div class="the"><span class="mo">${S.noDs.length} khách đang nợ</span><div class="so-lon no tien">${tien(tong)}</div>
       ${S.noDs.length ? '<button class="nut" style="width:100%;margin-top:8px" data-a="nhacHangLoat">📨 Nhắc nợ hàng loạt</button>' : ''}</div>
-      <div class="the ds">${ds.map(k => `<div class="muc dong" data-a="moKhach" data-id="${esc(k.id)}"><div class="gian"><b>${esc(k.ten)}</b>
+      <div class="the ds">${ds.map(k => `<div class="muc dong" data-a="moKhach" data-id="${esc(k.id)}"><div class="gian"><b>${esc(k.ten)}</b>${k.ten_chu ? ' <span class="mo">· ' + esc(k.ten_chu) + '</span>' : ''}
           ${k.han_muc_no > 0 && Number(k.tong_no) > k.han_muc_no ? '<span class="the-nhan do">vượt hạn mức</span>' : ''}<br>
           <span class="mo">${k.so_don_no} đơn · nợ từ ${soNgayTruoc(k.ngay_no_cu_nhat)} ngày trước${k.sdt ? ' · ' + esc(k.sdt) : ''}</span></div>
           <b class="no tien">${tien(k.tong_no)}</b></div>`).join('') || `<div class="trong">${S.noDs.length ? 'Không thấy khách' : 'Không ai nợ 🎉'}</div>`}</div>`;
     return;
   }
   const ds = locTimKhach(S.khach).slice(0, 100);
-  o.innerHTML = `<div class="the ds">${ds.map(k => `<div class="muc dong" data-a="moKhach" data-id="${esc(k.id)}"><div class="gian"><b>${esc(k.ten)}</b>
+  o.innerHTML = `<div class="the ds">${ds.map(k => `<div class="muc dong" data-a="moKhach" data-id="${esc(k.id)}"><div class="gian"><b>${esc(k.ten)}</b>${k.ten_chu ? ' <span class="mo">· ' + esc(k.ten_chu) + '</span>' : ''}
     ${k.khoa ? '<span class="the-nhan">khoá</span>' : ''}<br><span class="mo">${esc(k.sdt || '')} · ${esc(k.id)} · ${esc(k.nhom)}</span></div>
     ${k.con_no > 0 ? `<b class="no tien">${tien(k.con_no)}</b>` : ''}</div>`).join('') || '<div class="trong">Không thấy khách</div>'}</div>`;
 }
@@ -2390,7 +2423,8 @@ HD.taiExcel = el => chay(el, 'Đang tạo file…', async () => {
 const BANG_SAO_LUU = [
   ['Hàng & giá', [['Mã', 'id', 0, 10], ['Tên hàng', 'ten', 0, 34], ['Đơn vị', 'don_vi', 0, 8], ['Danh mục', 'danh_muc', 0, 16], ['Bảng giá', 'bang_gia', 0, 50],
     ['Giá vốn/đv', 'gia_von'], ['Tồn kho', 'ton_kho', 0, 9], ['Tồn tối thiểu', 'ton_toi_thieu', 0, 9], ['Đang bán', 'dang_ban', 0, 8], ['Mã vạch', 'ma_vach', 0, 30]], 'hang'],
-  ['Khách & nợ', [['Mã', 'id', 0, 8], ['Tên khách', 'ten', 0, 26], ['SĐT', 'sdt', 0, 12], ['Địa chỉ', 'dia_chi', 0, 24], ['Nhóm', 'nhom', 0, 8],
+  ['Khách & nợ', [['Mã', 'id', 0, 8], ['Tên quán / khách', 'ten', 0, 26], ['Tên chủ', 'ten_chu', 0, 20], ['SĐT 1', 'sdt', 0, 12], ['SĐT 2', 'sdt2', 0, 12], ['SĐT 3', 'sdt3', 0, 12],
+    ['Zalo', 'zalo', 0, 12], ['Link Zalo', 'zalo_link', 0, 26], ['Địa chỉ', 'dia_chi', 0, 24], ['Nhóm', 'nhom', 0, 8],
     ['Đang nợ', 'dang_no'], ['Số đơn nợ', 'so_don_no', 0, 8], ['Nợ từ ngày', 'ngay_no_cu_nhat', 'ngay', 16], ['Hạn mức', 'han_muc_no']], 'khach'],
   ['Đơn hàng', [['Mã đơn', 'id', 0, 10], ['Ngày', 'ngay', 'ngay', 16], ['Khách', 'ten_khach', 0, 24], ['Hình thức', 'hinh_thuc', 0, 12], ['Tiền hàng', 'tong_tien_hang'],
     ['Chiết khấu', 'chiet_khau', 0, 10], ['Tổng cộng', 'tong_cong'], ['Đã trả', 'da_tra'], ['Còn nợ', 'con_no'], ['Trạng thái', 'trang_thai', 0, 10],
@@ -3468,7 +3502,7 @@ async function vaoApp() {
 async function khoiDong() {
   // Xin trình duyệt đừng tự xoá bộ nhớ của app (giỏ hàng, phiên đăng nhập)
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
-  chuanBiHang(); S.khach.forEach(k => { k._t = boDau(k.ten) + ' ' + chiSo(k.sdt) + ' ' + k.id.toLowerCase(); });
+  chuanBiHang(); S.khach.forEach(k => { k._t = chuoiTimKhach(k); });
   if (!phien) return veDangNhap();
   // Đã đăng nhập trước đó: vẽ ngay bằng dữ liệu lưu trên máy, rồi cập nhật ngầm
   if (S.toi && S.toi.hoat_dong) veKhung();
