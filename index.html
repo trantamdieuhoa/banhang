@@ -73,6 +73,16 @@ h3{font-size:15px;margin:4px 0 8px}
 .chon-khach .gian{flex:1}
 .o-tim{position:sticky;top:46px;z-index:4;background:var(--nen);padding:4px 0 8px}
 .o-tim input{font-size:16px;padding:12px 14px}
+/* Tab Hàng (2.9): nút vuông cùng cỡ, danh sách gọn 2 dòng, giá dồn bên phải, chữ cái phân nhóm */
+.nut-vuong{min-width:46px;height:46px;padding:0 10px;white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;gap:4px;flex:none}
+.loc button .dem-loc{opacity:.6;margin-left:4px;font-size:12px}
+.chon-dm{width:100%;margin-bottom:8px;font-size:15px;padding:10px 12px}
+.ds-hang>.muc{padding:8px 2px}
+.ds-hang .ten-hh{font-weight:600;font-size:15px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ds-hang .phu-hh{font-size:12.5px;color:var(--phu);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gia-hh{flex:none;text-align:right;font-size:12.5px;line-height:1.45;color:var(--phu);max-width:45%}
+.gia-hh b{color:var(--chu);font-size:14px;font-weight:700}
+.chu-cai{position:sticky;top:104px;z-index:2;background:var(--nen);font-weight:700;font-size:13px;color:var(--chinh);padding:4px 4px;margin:0 -12px;padding-left:14px;border-bottom:1px solid var(--vien)}
 .hh{background:var(--the);border:1px solid var(--vien);border-radius:var(--bo);padding:10px 12px;margin-bottom:8px}
 .hh-ten{font-weight:600}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
@@ -201,7 +211,7 @@ setTimeout(function () {
 
 // ── 1. CẤU HÌNH ──────────────────────────────────────────────────────
 // Số bản hiện ở cuối tab Thêm. MỖI LẦN ĐƯA BẢN MỚI LÊN PHẢI ĐỔI SỐ NÀY (để biết điện thoại đã nhận bản mới chưa).
-const BAN = '2.8';
+const BAN = '2.9';
 const CFG = {
   url: 'https://mrfwdmpdkhnhfblldzba.supabase.co',
   key: 'sb_publishable_92KnloG8NcjLUmpr92s6xw_7yPlsYJ3',  // khoá CÔNG KHAI – để ở đây là an toàn
@@ -2711,18 +2721,25 @@ const LOC_HANG = {
   saphet: ['Sắp hết',     null],   // lấy từ máy chủ (cần tồn tối thiểu)
   ngung:  ['Ngừng bán',   null],   // hàng ẩn, không có trong danh mục bán
 };
+// Danh mục gõ thường ("mì chính") → hiện viết hoa chữ đầu cho đều mắt (không đổi dữ liệu)
+const hoaDau = s => s ? s.charAt(0).toLocaleUpperCase('vi') + s.slice(1) : s;
 function veHang() {
-  const dms = [...new Set(S.hang.map(h => h.dm).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+  const demDm = {}; S.hang.forEach(h => { if (h.dm) demDm[h.dm] = (demDm[h.dm] || 0) + 1; });
+  const dms = Object.keys(demDm).sort((a, b) => a.localeCompare(b, 'vi'));
+  const soChuLuc = S.hang.filter(h => h.ton != null).length;
+  // Số món mỗi bộ lọc (bộ lọc tính được trên máy)
+  const demLoc = k => k === 'tat' ? S.hang.length : LOC_HANG[k][1] ? S.hang.filter(LOC_HANG[k][1]).length : null;
   $('#noi-dung').innerHTML = `
-    <div class="o-tim dong"><input class="o" id="o-tim-hang" type="search" data-i="timHangTab" placeholder="Tìm trong ${S.hang.length} mặt hàng…" value="${esc(S.hTim)}" autocomplete="off">
-      ${S.hCheDo ? '' : '<button class="nut" data-a="quetTimHang" title="Quét mã vạch để tìm hàng">📷</button>'}
-      ${laChu() ? `<button class="nut${S.hCheDo ? ' chinh' : ''}" data-a="hangCheDoChon">${S.hCheDo ? '✓ Xong' : '☑ Chọn'}</button>
-        ${S.hCheDo ? '' : '<button class="nut chinh" data-a="hangMoi">＋</button>'}` : ''}</div>
-    <div class="loc">${Object.entries(LOC_HANG).filter(([k]) => k !== 'ngung' || laChu()).map(([k, [t]]) =>
-      `<button data-a="locHang" data-k="${k}" class="${S.hLoc === k ? 'chon' : ''}">${t}</button>`).join('')}</div>
-    <div class="loc"><button data-a="dmHang" data-dm="" class="${!S.hDm ? 'chon' : ''}">Mọi danh mục</button>
-      ${dms.map(d => `<button data-a="dmHang" data-dm="${esc(d)}" class="${S.hDm === d ? 'chon' : ''}">${esc(d)}</button>`).join('')}</div>
-    ${S.hCheDo ? '' : `<button class="nut" style="width:100%;margin-bottom:8px" data-a="kkMo">📋 Kiểm kho món chủ lực (${S.hang.filter(h => h.ton != null).length})</button>`}
+    <div class="o-tim dong"><input class="o" id="o-tim-hang" type="search" data-i="timHangTab" placeholder="🔍 Tìm hàng…" value="${esc(S.hTim)}" autocomplete="off">
+      ${S.hCheDo ? '' : '<button class="nut nut-vuong" data-a="quetTimHang" title="Quét mã vạch để tìm hàng">📷</button>'}
+      ${laChu() ? `<button class="nut nut-vuong${S.hCheDo ? ' chinh' : ''}" data-a="hangCheDoChon">${S.hCheDo ? '✓ Xong' : '☑ Chọn'}</button>
+        ${S.hCheDo ? '' : '<button class="nut nut-vuong chinh" data-a="hangMoi" title="Thêm mặt hàng">＋</button>'}` : ''}</div>
+    <div class="loc">${Object.entries(LOC_HANG).filter(([k]) => k !== 'ngung' || laChu()).map(([k, [ten]]) => { const n = demLoc(k);
+      return `<button data-a="locHang" data-k="${k}" class="${S.hLoc === k ? 'chon' : ''}">${ten}${n != null && k !== 'tat' ? `<span class="dem-loc">${n}</span>` : ''}</button>`; }).join('')}
+      ${soChuLuc && !S.hCheDo ? `<button data-a="kkMo">📋 Kiểm kho</button>` : ''}</div>
+    ${dms.length ? `<select class="o chon-dm" data-d="dmHangChon">
+      <option value="">📂 Mọi danh mục (${S.hang.length})</option>
+      ${dms.map(d => `<option value="${esc(d)}" ${S.hDm === d ? 'selected' : ''}>${esc(hoaDau(d))} (${demDm[d]})</option>`).join('')}</select>` : ''}
     <div id="ds-hang"></div>`;
   veDsHang();
 }
@@ -2747,17 +2764,33 @@ async function veDsHang() {
   let ds;
   try { ds = await locDsHang(); } catch (e) { o.innerHTML = `<div class="trong">${esc(e.message)}</div>`; return; }
   if (!$('#ds-hang')) return;
-  const giaGon = h => h.gia.map(g => `${esc(g.qc)}${g.qd > 1 ? '(' + so(g.qd) + ')' : ''} <b>${so(g.g / 1000)}k</b>`).join(' · ');
-  o.innerHTML = `<p class="mo" style="margin:0 0 6px">${ds.length} mặt hàng</p>
-    <div class="the ds">${ds.slice(0, S.hSo).map(h => `<div class="muc dong" data-a="${S.hCheDo ? 'chonHang' : 'xemHang'}" data-id="${esc(h.id)}">
+  // Giá dồn bên phải: tối đa 3 quy cách, mỗi dòng 1 giá (gói 6,5k / thùng 170k)
+  const giaGon = h => { const g = h.gia.slice(0, 3).map(x => `${esc(x.qc)}${x.qd > 1 ? '<span style="font-size:11px">×' + so(x.qd) + '</span>' : ''} <b>${so(x.g / 1000)}k</b>`);
+    if (h.gia.length > 3) g.push('+' + (h.gia.length - 3) + ' giá'); return g.join('<br>'); };
+  // Chia nhóm theo chữ cái đầu khi xem cả danh sách (không tìm), giúp lướt nhanh
+  const nhomChu = !S.hTim.trim();
+  let chuTruoc = '';
+  const dong = h => {
+    let dau = '';
+    if (nhomChu) { const c = (boDau(h.ten).charAt(0) || '#').toUpperCase(); const k = /[A-Z]/.test(c) ? c : '#';
+      if (k !== chuTruoc) { chuTruoc = k; dau = `<div class="chu-cai">${k}</div>`; } }
+    const phu = [esc(h.dv), h.dm && !S.hDm ? esc(hoaDau(h.dm)) : ''].filter(Boolean).join(' · ');
+    return dau + `<div class="muc dong" data-a="${S.hCheDo ? 'chonHang' : 'xemHang'}" data-id="${esc(h.id)}">
       ${S.hCheDo ? `<span class="o-chon">${S.hChon.has(h.id) ? '☑' : '☐'}</span>` : ''}
-      <div class="gian"><b>${esc(h.ten)}</b><br>
-        <span class="mo">${esc(h.dv)}${h.dm ? ' · ' + esc(h.dm) : ''}</span>
-        ${h.ton != null ? ` <span class="the-nhan ${h.min != null || h.ton <= 0 ? 'do' : ''}">tồn ${so(h.ton)}${h.min != null ? ' / tối thiểu ' + so(h.min) : ''}</span>` : ''}
-        <div style="font-size:13px;margin-top:2px">${h.ngung ? '<span class="the-nhan">ngừng bán</span>' : h.gia.length ? giaGon(h) : '<span class="the-nhan vang">chưa có giá</span>'}</div></div>
-      ${S.hCheDo ? '' : '<span class="mo">›</span>'}</div>`).join('') || '<div class="trong">Không có mặt hàng nào</div>'}</div>
-    ${ds.length > S.hSo ? `<button class="nut" style="width:100%" data-a="themDongHang">Xem thêm (${ds.length - S.hSo} món)</button>` : ''}
+      <div class="gian"><div class="ten-hh">${esc(h.ten)}</div>
+        <div class="phu-hh">${phu}${h.ton != null ? ` · <span class="${h.min != null || h.ton <= 0 ? 'no' : ''}">tồn ${so(h.ton)}${h.min != null ? '/' + so(h.min) : ''}</span>` : ''}</div></div>
+      <div class="gia-hh">${h.ngung ? '<span class="the-nhan">ngừng bán</span>' : h.gia.length ? giaGon(h) : '<span class="the-nhan vang">chưa có giá</span>'}</div></div>`;
+  };
+  o.innerHTML = `<p class="mo" style="margin:0 0 6px">${ds.length} mặt hàng${S.hDm ? ' · ' + esc(hoaDau(S.hDm)) : ''}</p>
+    <div class="the ds ds-hang" style="padding-top:4px">${ds.slice(0, S.hSo).map(dong).join('') || '<div class="trong">Không có mặt hàng nào</div>'}</div>
+    ${ds.length > S.hSo ? `<button class="nut" id="them-hang" style="width:100%" data-a="themDongHang">Xem thêm (${ds.length - S.hSo} món)</button>` : ''}
     ${S.hCheDo ? '<div style="height:120px"></div>' : ''}`;
+  // Cuộn gần cuối → tự hiện thêm (khỏi bấm "Xem thêm")
+  const nut = $('#them-hang');
+  if (nut && 'IntersectionObserver' in window) {
+    const ob = new IntersectionObserver(e => { if (e[0].isIntersecting) { ob.disconnect(); S.hSo += 100; veDsHang(); } }, { rootMargin: '400px' });
+    ob.observe(nut);
+  }
   veThanhChon(ds.length);
 }
 
@@ -2816,6 +2849,7 @@ HD.hangBanLai = async () => {
 GO.timHangTab = el => { S.hTim = el.value; S.hSo = 60; veDsHang(); };
 HD.locHang = el => { S.hLoc = el.dataset.k; S.hSo = 60; veHang(); };
 HD.dmHang = el => { S.hDm = el.dataset.dm; S.hSo = 60; veHang(); };
+DOI.dmHangChon = el => { S.hDm = el.value; S.hSo = 60; veDsHang(); };
 HD.themDongHang = () => { S.hSo += 100; veDsHang(); };
 HD.xemHang = el => moChiTietHang(el.dataset.id);
 
