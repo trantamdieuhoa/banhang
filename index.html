@@ -72,6 +72,8 @@ h3{font-size:15px;margin:4px 0 8px}
 .chon-khach{width:100%;text-align:left;display:flex;align-items:center;gap:8px;border:1px solid var(--vien);background:var(--the);border-radius:var(--bo);padding:10px 12px;margin-bottom:8px}
 .chon-khach .gian{flex:1}
 .o-tim{position:sticky;top:46px;z-index:4;background:var(--nen);padding:4px 0 8px}
+/* Trong bảng trượt lên (#bang) không có thanh tiêu đề app phía trên → ô tìm dính sát mép trên, không che dòng đầu danh sách */
+#bang .o-tim{top:0}
 .o-tim input{font-size:16px;padding:12px 14px}
 /* Tab Hàng (2.9): nút vuông cùng cỡ, danh sách gọn 2 dòng, giá dồn bên phải, chữ cái phân nhóm */
 .nut-vuong{min-width:46px;height:46px;padding:0 10px;white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;gap:4px;flex:none}
@@ -211,7 +213,7 @@ setTimeout(function () {
 
 // ── 1. CẤU HÌNH ──────────────────────────────────────────────────────
 // Số bản hiện ở cuối tab Thêm. MỖI LẦN ĐƯA BẢN MỚI LÊN PHẢI ĐỔI SỐ NÀY (để biết điện thoại đã nhận bản mới chưa).
-const BAN = '3.0';
+const BAN = '3.1';
 const CFG = {
   url: 'https://mrfwdmpdkhnhfblldzba.supabase.co',
   key: 'sb_publishable_92KnloG8NcjLUmpr92s6xw_7yPlsYJ3',  // khoá CÔNG KHAI – để ở đây là an toàn
@@ -312,6 +314,12 @@ async function copy(text) {
   t.remove();
   if (ok) return thongBao('Đã copy – dán vào Zalo', 'tot');
   moBang('Chép nội dung', () => `<p class="mo">Nhấn giữ vào ô dưới → Chọn tất cả → Sao chép</p><textarea class="o" rows="14">${esc(text)}</textarea>`);
+}
+// QR VietQR cho 1 tài khoản bất kỳ {bin, so_tk, ten_tk} (NCC01: dùng để trả tiền NCC)
+function linkQRTk(tk, soTien, noiDung) {
+  if (!tk || !tk.bin || !chiSo(tk.so_tk)) return '';
+  return 'https://img.vietqr.io/image/' + tk.bin + '-' + chiSo(tk.so_tk) + '-compact2.png?amount=' + Math.round(soTien || 0) +
+    '&addInfo=' + encodeURIComponent(noiDung || '') + '&accountName=' + encodeURIComponent(tk.ten_tk || '');
 }
 function linkQR(soTien, noiDung) {
   const nh = S.cauHinh.ngan_hang || {};
@@ -643,8 +651,8 @@ function hoi(tieuDe, o, chuNut, ghiChu) {
     const dau = form.querySelector('input:not([type=checkbox]):not([type=file]):not([type=date]),select'); if (dau) setTimeout(() => dau.focus(), 50);
     form.onsubmit = ev => {
       ev.preventDefault();
-      const v = {};
-      o.forEach(f => { const el = $('#h_' + f.k);
+      const v = {}; v._tho = {};   // _tho = chữ gốc người dùng gõ (phân biệt "để trống" với "0")
+      o.forEach(f => { const el = $('#h_' + f.k); if (el && f.kieu !== 'anh') v._tho[f.k] = el.type === 'checkbox' ? el.checked : el.value;
         v[f.k] = f.kieu === 'anh' ? Array.from(el.files || []) : f.kieu === 'ngay' ? el.value : f.kieu === 'hop' ? el.checked : f.kieu === 'tien' ? docTien(el.value) : f.kieu === 'so' ? docSo(el.value) : el.value.trim(); });
       ket(v); S.bangs.pop(); veBang();
     };
@@ -2325,8 +2333,9 @@ HD.ktPdf = el => chay(el, 'Đang tạo PDF…', async () => {
 // Phải có trong két = quỹ đầu ngày (số "để lại" lần chốt trước) + khách trả tiền mặt − trả NCC tiền mặt
 HD.chotSo = el => chay(el, '…', async () => { S.cs = { ngay: ngayVN(0) }; await taiChotSo(); moBang('Chốt sổ', veChotSo); });
 async function taiChotSo() {
-  const [t, ls] = await Promise.all([rpc('tinh_chot_so', { p_ngay: S.cs.ngay }), api('chot_so?select=*&order=ngay.desc&limit=14')]);
-  S.cs.t = t; S.cs.ls = ls; S.cs.quy = t.da_chot ? t.da_chot.quy_dau : t.quy_dau; S.cs.dem = ''; S.cs.rut = '';
+  const [t, ls, han] = await Promise.all([rpc('tinh_chot_so', { p_ngay: S.cs.ngay }), api('chot_so?select=*&order=ngay.desc&limit=14'),
+    api('v_ncc_han_no?select=id,ten,qua_han,con_no&qua_han=gte.0&order=qua_han.desc').catch(() => [])]);
+  S.cs.t = t; S.cs.ls = ls; S.cs.nccHan = han; S.cs.quy = t.da_chot ? t.da_chot.quy_dau : t.quy_dau; S.cs.dem = ''; S.cs.rut = '';
 }
 const phaiCo = () => (Number(S.cs.quy) || 0) + Number(S.cs.t.thu_tm) - Number(S.cs.t.chi_tm);
 function veChotSo() {
@@ -2350,6 +2359,7 @@ function veChotSo() {
       ${Number(t.tru_tra_hang) ? `<div class="tong-dong mo"><span>Hàng khách trả (đã trừ vào đơn)</span><span class="tien">${tien(t.tru_tra_hang)}</span></div>` : ''}
       ${Number(t.tru_doi_thuong) ? `<div class="tong-dong mo"><span>Đổi thưởng nắp (trừ vào đơn)</span><span class="tien">${tien(t.tru_doi_thuong)}</span></div>` : ''}
       ${t.cho_giao ? `<div class="tong-dong"><span class="no">🚚 Đơn chưa giao (mọi ngày)</span><span class="no">${t.cho_giao}</span></div>` : ''}
+      ${(g.nccHan || []).length ? `<div class="tong-dong"><span class="no">⏱ NCC tới/quá hạn trả: ${g.nccHan.map(x => esc(x.ten) + ' ' + tien(x.con_no)).join(', ')}</span><button class="gia-sua" data-a="nccDs">${g.nccHan.length} NCC ›</button></div>` : ''}
       ${t.cho_kiem_tra ? `<div class="tong-dong"><span class="no">⏳ Hàng trả chờ chủ kiểm tra</span><button class="gia-sua" data-a="vtDs">${t.cho_kiem_tra} việc ›</button></div>` : ''}</div>
     <label class="nhan">Tiền mặt đếm được trong két</label>
     <input class="o" inputmode="decimal" data-i="csDem" value="${esc(g.dem)}" placeholder="VD 2350k hoặc 2.350.000">
@@ -2433,7 +2443,8 @@ const BANG_SAO_LUU = [
     ['Số lượng', 'so_luong', 0, 9], ['Đơn giá', 'don_gia'], ['Thành tiền', 'thanh_tien']], 'chi_tiet'],
   ['Nợ nhà cung cấp', [['Mã', 'id', 0, 8], ['Nhà cung cấp', 'ten', 0, 26], ['SĐT', 'sdt', 0, 12], ['Tổng nhập', 'tong_nhap'], ['Đã trả', 'da_tra'], ['Còn nợ', 'con_no']], 'no_ncc'],
   ['Nhà cung cấp', [['Mã', 'id', 0, 8], ['Nhà cung cấp', 'ten', 0, 26], ['Địa chỉ', 'dia_chi', 0, 26], ['SĐT NCC', 'sdt', 0, 12], ['NV bán hàng', 'nguoi_lien_he', 0, 16],
-    ['SĐT NV', 'sdt_nv', 0, 12], ['Lịch giao', 'lich_giao', 0, 14], ['Ghi chú', 'ghi_chu', 0, 20], ['Đang hợp tác', 'dang_hop_tac', 0, 8], ['Mặt hàng', 'mat_hang', 0, 60]], 'ncc'],
+    ['SĐT NV', 'sdt_nv', 0, 12], ['Zalo NV', 'zalo_nv', 0, 14], ['Ngân hàng', 'ten_ngan_hang', 0, 12], ['Số TK', 'so_tk', 0, 16], ['Tên TK', 'ten_tk', 0, 22],
+    ['Được nợ (ngày)', 'han_no_ngay', 0, 8], ['Điều kiện nợ', 'dieu_kien_no', 0, 20], ['Lịch giao', 'lich_giao', 0, 14], ['Ghi chú', 'ghi_chu', 0, 20], ['Đang hợp tác', 'dang_hop_tac', 0, 8], ['Mặt hàng', 'mat_hang', 0, 60]], 'ncc'],
 ];
 HD.dangXuat = async () => {
   if (S.donCho.length && !await xacNhan('Còn ' + S.donCho.length + ' đơn lưu lúc mất mạng CHƯA GỬI lên máy chủ. Đăng xuất bây giờ sẽ MẤT các đơn này. Vẫn đăng xuất?', 'Vẫn đăng xuất')) return;
@@ -2978,9 +2989,12 @@ HD.kiemKho = async () => {
 // Bảng ncc_hang: NCC nào bỏ mặt hàng nào (1 món có thể nhiều NCC). Nhân viên xem được, chỉ chủ sửa được.
 const nutGoi = sdt => { sdt = chiSo(sdt); return sdt ? `<a class="nut nho" href="tel:${sdt}">📞</a><a class="nut nho" href="${ZALO}${sdt}" target="_blank" rel="noopener">Zalo</a>` : ''; };
 async function taiNcc() {
-  const [ds, no] = await Promise.all([api('nha_cung_cap?select=*,ncc_hang(hang_hoa_id)&order=dang_hop_tac.desc,ten'), api('v_cong_no_ncc?select=id,con_no')]);
+  const [ds, no, han] = await Promise.all([api('nha_cung_cap?select=*,ncc_hang(hang_hoa_id)&order=dang_hop_tac.desc,ten'), api('v_cong_no_ncc?select=id,con_no'),
+    api('v_ncc_han_no?select=id,qua_han,ngay_toa_cu_nhat').catch(() => [])]);
   S.ncc = ds; const noTheo = {}; no.forEach(x => noTheo[x.id] = Number(x.con_no));
-  S.ncc.forEach(n => { n.soHang = n.ncc_hang.length; n.conNo = noTheo[n.id] || 0; n._t = boDau([n.ten, n.dia_chi, n.nguoi_lien_he].join(' ')) + ' ' + chiSo(n.sdt) + ' ' + chiSo(n.sdt_nv); });
+  const hanTheo = {}; han.forEach(x => hanTheo[x.id] = x);
+  S.ncc.forEach(n => { n.soHang = n.ncc_hang.length; n.conNo = noTheo[n.id] || 0; n.han = hanTheo[n.id] || null;
+    n._t = boDau([n.ten, n.dia_chi, n.nguoi_lien_he].join(' ')) + ' ' + chiSo(n.sdt) + ' ' + chiSo(n.sdt_nv) + ' ' + chiSo(n.zalo_nv) + ' ' + chiSo(n.so_tk); });
 }
 HD.nccDs = async el => {
   await chay(el, '…', taiNcc); S.timNcc = '';
@@ -2993,7 +3007,7 @@ function veDsNcc() {
   const hangKhop = q.length >= 2 ? new Set(S.hang.filter(h => h._t.includes(q)).map(h => h.id)) : new Set();
   const ds = S.ncc.filter(n => !q || n._t.includes(q) || (qs.length >= 3 && n._t.includes(qs)) || n.ncc_hang.some(l => hangKhop.has(l.hang_hoa_id)));
   return `<div class="the ds">${ds.map(n => `<div class="muc dong" data-a="nccMo" data-id="${esc(n.id)}"><div class="gian"><b>${esc(n.ten)}</b>
-      ${n.dang_hop_tac ? '' : '<span class="the-nhan">ngừng</span>'}<br>
+      ${n.dang_hop_tac ? '' : '<span class="the-nhan">ngừng</span>'} ${nhanHanNcc(n.han)}<br>
       <span class="mo">${n.nguoi_lien_he ? '👤 ' + esc(n.nguoi_lien_he) + ' · ' : ''}${esc(n.sdt_nv || n.sdt || 'chưa có SĐT')} · ${n.soHang} mặt hàng</span></div>
       ${n.conNo > 0 ? `<b class="no tien">${tien(n.conNo)}</b>` : ''}›</div>`).join('')
     || `<div class="trong">${S.ncc.length ? 'Không thấy' : 'Chưa có nhà cung cấp nào' + (laChu() ? ' – bấm ＋ để thêm' : '')}</div>`}</div>`;
@@ -3008,6 +3022,7 @@ async function layNcc(id) {
   ]);
   if (!r[0]) throw new Error('Không tìm thấy nhà cung cấp ' + id);
   const n = r[0];
+  n.han = (await api('v_ncc_han_no?id=eq.' + id).catch(() => []))[0] || null;
   n.toa = toa; n.tra = tra; n.no = no[0] || { tong_nhap: 0, da_tra: 0, con_no: 0 }; n.hang = n.ncc_hang.map(l => l.hang_hoa).filter(Boolean).sort((a, b) => a.ten.localeCompare(b.ten, 'vi'));
   return n;
 }
@@ -3018,6 +3033,18 @@ async function taiLaiNcc() {
   b.nx = n; b.tieuDe = n.ten; b.ve = () => veChiTietNcc(n); veBang(); taiNcc().catch(() => {});
 }
 const sapHet = h => h.ton_kho != null && h.ton_kho <= (h.ton_toi_thieu || 0);
+// Nhãn hạn trả NCC (NCC01): qua_han > 0 quá hạn · 0 tới hạn hôm nay · ≤ 3 ngày nữa: sắp tới hạn
+function nhanHanNcc(h) {
+  if (!h) return '';
+  const q = Number(h.qua_han);
+  if (q > 0) return `<span class="the-nhan do">quá hạn ${q} ngày</span>`;
+  if (q === 0) return '<span class="the-nhan do">tới hạn hôm nay</span>';
+  if (q >= -3) return `<span class="the-nhan vang">còn ${-q} ngày tới hạn</span>`;
+  return '';
+}
+// Link Zalo NV bán hàng: dán link thì dùng link, gõ số thì zalo.me/<số>
+const zaloNv = n => { const z = (n.zalo_nv || '').trim(); if (!z) return '';
+  return /zalo\.me|^https?:/i.test(z) ? (/^https?:/i.test(z) ? z : 'https://' + z) : chiSo(z) ? ZALO + chiSo(z) : ''; };
 function veChiTietNcc(n) {
   const chu = laChu(), het = n.hang.filter(sapHet);
   return `
@@ -3025,7 +3052,14 @@ function veChiTietNcc(n) {
       <div class="dong"><div class="gian"><span class="mo">Nhà cung cấp</span><br><b>${esc(n.sdt || 'chưa có SĐT')}</b></div>${nutGoi(n.sdt)}</div>
       ${n.dia_chi ? `<p style="margin:8px 0 0">📍 ${esc(n.dia_chi)}</p>` : ''}
       <div class="dong" style="margin-top:10px;border-top:1px dashed var(--vien);padding-top:10px"><div class="gian"><span class="mo">Nhân viên bán hàng</span><br>
-        <b>${esc(n.nguoi_lien_he || '—')}</b>${n.sdt_nv ? ' · ' + esc(n.sdt_nv) : ''}</div>${nutGoi(n.sdt_nv)}</div>
+        <b>${esc(n.nguoi_lien_he || '—')}</b>${n.sdt_nv ? ' · ' + esc(n.sdt_nv) : ''}</div>${n.sdt_nv ? `<a class="nut nho" href="tel:${chiSo(n.sdt_nv)}">📞</a>` : ''}</div>
+      ${zaloNv(n) || chiSo(n.sdt_nv) ? `<a class="nut" style="display:block;text-align:center;margin-top:8px;background:#0068ff;border-color:#0068ff;color:#fff" href="${esc(zaloNv(n) || ZALO + chiSo(n.sdt_nv))}" target="_blank" rel="noopener">💬 Zalo nhân viên bán hàng</a>` : ''}
+      ${n.so_tk || (n.anh_qr || []).length ? `<div style="margin-top:10px;border-top:1px dashed var(--vien);padding-top:10px">
+        <span class="mo">Tài khoản nhận tiền</span><br>
+        ${n.so_tk ? `🏦 <b>${esc(n.ten_ngan_hang || '')}</b> · <b>${esc(n.so_tk)}</b>${n.ten_tk ? '<br><span class="mo">' + esc(n.ten_tk) + '</span>' : ''}` : '<span class="mo">Có ảnh mã QR của NCC</span>'}
+        <div class="hang-nut" style="margin-top:6px"><button class="nut chinh" data-a="nccQR">📱 Mã QR chuyển khoản</button>
+          ${n.so_tk ? '<button class="nut" data-a="nccCopyTk">📋 Copy số TK</button>' : ''}</div></div>` : ''}
+      ${n.han_no_ngay != null || n.dieu_kien_no ? `<p style="margin:8px 0 0">⏱ Được nợ <b>${n.han_no_ngay != null ? n.han_no_ngay + ' ngày' : '—'}</b>${n.dieu_kien_no ? ' · ' + esc(n.dieu_kien_no) : ''} ${nhanHanNcc(n.han)}</p>` : ''}
       ${n.lich_giao ? `<p class="mo" style="margin:8px 0 0">🚚 Lịch giao: ${esc(n.lich_giao)}</p>` : ''}
       ${n.ghi_chu ? `<p class="mo" style="margin:4px 0 0">📝 ${esc(n.ghi_chu)}</p>` : ''}
       <div class="hang-nut">${n.hang.length ? '<button class="nut" data-a="nccCopyDat">📋 Copy tin đặt hàng</button>' : ''}
@@ -3099,13 +3133,30 @@ HD.toaThem = async () => {
     await docToaAI(toaMoi, v.anh);
 };
 let toaMoi = null;
+// NCC01: mã QR chuyển khoản trả NCC – đúng số tiền, đúng nội dung; chuyển xong bấm "Ghi nhận"
+HD.nccCopyTk = () => { const n = nccDangMo(); copy(chiSo(n.so_tk)); };
+HD.nccQR = async () => {
+  const n = nccDangMo(), no = Number(n.no.con_no), shop = boDau((S.cauHinh.cua_hang || {}).ten || '').toUpperCase().slice(0, 20);
+  const v = await hoi('QR trả ' + n.ten, [
+    { k: 'tien', nhan: 'Số tiền chuyển', kieu: 'tien', gt: no > 0 ? no : '' },
+    { k: 'nd', nhan: 'Nội dung chuyển khoản', gt: (shop ? shop + ' ' : '') + 'TT NO' },
+  ], 'Tạo mã QR', no > 0 ? 'Đang nợ ' + tien(no) : '');
+  if (!v || !(v.tien > 0)) return;
+  const qr = linkQRTk(n, v.tien, v.nd), anh = (n.anh_qr || []).length;
+  const xong = await hoi('Quét để chuyển ' + tien(v.tien), [], '✓ Đã chuyển – ghi nhận trả',
+    (qr ? `<img class="qr" src="${qr}" alt="QR ${esc(n.ten)}">` : '')
+    + (anh ? (qr ? '<p class="mo" style="text-align:center">Hoặc dùng mã QR NCC gửi (nhớ gõ số tiền):</p>' : '<p class="mo" style="text-align:center">Mã QR NCC gửi – nhớ gõ đúng số tiền:</p>') + veAnh(n.anh_qr) : '')
+    + `<p style="text-align:center;margin:6px 0 0">${n.so_tk ? esc(n.ten_ngan_hang || '') + ' · <b>' + esc(n.so_tk) + '</b><br>' + esc(n.ten_tk || '') + '<br>' : ''}Số tiền <b>${tien(v.tien)}</b> · Nội dung <b>${esc(v.nd)}</b></p>`);
+  if (!xong) return;
+  S.nccTraGoi = { tien: v.tien, gc: v.nd }; await HD.nccTra();
+};
 HD.nccTra = async () => {
-  const n = nccDangMo(), no = Number(n.no.con_no);
+  const n = nccDangMo(), no = Number(n.no.con_no), goi = S.nccTraGoi || {}; S.nccTraGoi = null;
   const v = await hoi('Trả tiền – ' + n.ten, [
-    { k: 'tien', nhan: 'Số tiền trả', kieu: 'tien', gt: no > 0 ? no : '' },
+    { k: 'tien', nhan: 'Số tiền trả', kieu: 'tien', gt: goi.tien || (no > 0 ? no : '') },
     { k: 'ht', nhan: 'Hình thức', kieu: 'chon', ds: ['Chuyển khoản', 'Tiền mặt'], gt: 'Chuyển khoản' },
     { k: 'anh', nhan: 'Ảnh chuyển khoản / biên nhận', kieu: 'anh' },
-    { k: 'gc', nhan: 'Ghi chú', goiY: 'VD: trả toa ngày 20/10' },
+    { k: 'gc', nhan: 'Ghi chú', goiY: 'VD: trả toa ngày 20/10', gt: goi.gc || '' },
   ], 'Ghi nhận', no > 0 ? 'Đang nợ ' + tien(no) : '');
   if (!v || v.tien <= 0) return;
   if (v.tien < 10000 && !await xacNhan('Trả chỉ ' + tien(v.tien) + '? Muốn 1.000.000đ thì gõ 1000k hoặc 1tr.', 'Đúng ' + tien(v.tien))) return;
@@ -3393,16 +3444,31 @@ async function formNcc(n) {
     { k: 'sdt', nhan: 'SĐT nhà cung cấp', kieu: 'sdt', gt: n.sdt },
     { k: 'nguoi_lien_he', nhan: 'Nhân viên bán hàng (sale)', gt: n.nguoi_lien_he, goiY: 'VD: anh Tuấn' },
     { k: 'sdt_nv', nhan: 'SĐT nhân viên bán hàng', kieu: 'sdt', gt: n.sdt_nv },
+    { k: 'zalo_nv', nhan: 'Zalo nhân viên bán hàng (số hoặc link; trống = dùng SĐT NV)', gt: n.zalo_nv },
     { k: 'lich_giao', nhan: 'Lịch giao / ghé đơn', gt: n.lich_giao, goiY: 'VD: Thứ 2, Thứ 5' },
-    { k: 'ghi_chu', nhan: 'Ghi chú', gt: n.ghi_chu, goiY: 'VD: đặt trước 10h, nợ gối 1 lần' },
+    { k: 'bin', nhan: 'Ngân hàng nhận tiền của NCC', kieu: 'chon', ds: [['', '— chưa có —'], ...NGAN_HANG], gt: n.bin || '' },
+    { k: 'so_tk', nhan: 'Số tài khoản NCC', kieu: 'sdt', gt: n.so_tk },
+    { k: 'ten_tk', nhan: 'Tên chủ tài khoản', gt: n.ten_tk, goiY: 'app tự đổi IN HOA KHÔNG DẤU' },
+    { k: 'anh_qr', nhan: (n.anh_qr || []).length ? 'Ảnh mã QR của NCC (đã có – chọn ảnh mới để thay)' : 'Ảnh mã QR của NCC (nếu NCC gửi)', kieu: 'anh' },
+    { k: 'han_no_ngay', nhan: 'Số ngày được nợ (trống = không theo dõi hạn)', kieu: 'so', gt: n.han_no_ngay != null ? n.han_no_ngay : '' },
+    { k: 'dieu_kien_no', nhan: 'Điều kiện nợ', gt: n.dieu_kien_no, goiY: 'VD: nợ gối 1 toa, trả khi giao toa sau' },
+    { k: 'ghi_chu', nhan: 'Ghi chú', gt: n.ghi_chu, goiY: 'VD: đặt trước 10h' },
     { k: 'dang_hop_tac', nhan: 'Đang lấy hàng của NCC này', kieu: 'hop', gt: n.dang_hop_tac },
   ], n.id ? 'Lưu' : 'Thêm');
   if (!v) return null;
   if (!v.ten) { thongBao('Chưa nhập tên nhà cung cấp', 'loi'); return null; }
   const trung = (S.ncc || []).find(x => x.id !== n.id && boDau(x.ten) === boDau(v.ten));
   if (trung && !await xacNhan('Đã có nhà cung cấp "' + trung.ten + '". Vẫn lưu?', 'Vẫn lưu')) return null;
-  const dl = {}; ['ten', 'dia_chi', 'sdt', 'nguoi_lien_he', 'sdt_nv', 'lich_giao', 'ghi_chu'].forEach(k => dl[k] = v[k] || null);
+  const dl = {}; ['ten', 'dia_chi', 'sdt', 'nguoi_lien_he', 'sdt_nv', 'zalo_nv', 'lich_giao', 'ghi_chu', 'dieu_kien_no'].forEach(k => dl[k] = v[k] || null);
   dl.dang_hop_tac = v.dang_hop_tac;
+  // Ngân hàng: có số TK thì phải chọn ngân hàng (để tạo QR)
+  if (chiSo(v.so_tk) && !v.bin) { thongBao('Có số tài khoản thì chọn luôn ngân hàng', 'loi'); return null; }
+  dl.bin = v.bin || null; dl.ten_ngan_hang = (NGAN_HANG.find(x => x[0] === v.bin) || [])[1] || null;
+  dl.so_tk = chiSo(v.so_tk) || null; dl.ten_tk = v.ten_tk ? boDau(v.ten_tk).toUpperCase() : null;
+  // ô trống → docSo trả 0; phân biệt "0 ngày" với "để trống" qua chuỗi gốc hoi giữ lại (v._tho)
+  const hanRaw = String((v._tho || {}).han_no_ngay || '').trim();
+  dl.han_no_ngay = hanRaw === '' ? null : Math.max(0, Math.min(365, Math.round(v.han_no_ngay)));
+  if (v.anh_qr.length) dl.anh_qr = await cho('Đang tải ảnh QR…', () => taiNhieuAnh(v.anh_qr.slice(0, 1), 'qr-ncc/' + (n.id || 'moi')));
   const r = n.id ? await sua('nha_cung_cap', 'id=eq.' + n.id, dl) : await ghi('nha_cung_cap', dl);
   thongBao('Đã lưu nhà cung cấp', 'tot'); await taiNcc(); return r[0];
 }
