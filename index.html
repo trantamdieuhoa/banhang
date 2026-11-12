@@ -213,7 +213,7 @@ setTimeout(function () {
 
 // ── 1. CẤU HÌNH ──────────────────────────────────────────────────────
 // Số bản hiện ở cuối tab Thêm. MỖI LẦN ĐƯA BẢN MỚI LÊN PHẢI ĐỔI SỐ NÀY (để biết điện thoại đã nhận bản mới chưa).
-const BAN = '3.1';
+const BAN = '3.2';
 const CFG = {
   url: 'https://mrfwdmpdkhnhfblldzba.supabase.co',
   key: 'sb_publishable_92KnloG8NcjLUmpr92s6xw_7yPlsYJ3',  // khoá CÔNG KHAI – để ở đây là an toàn
@@ -500,6 +500,18 @@ const S = {
 S.gios.forEach(g => { if (!g.ma) g.ma = maPhieu(); g.tra = g.tra || []; g.thg = g.thg || []; g.treo = g.treo || []; });
 S.gioSo = Math.max(0, Math.min(S.gioSo, S.gios.length - 1)); S.gio = S.gios[S.gioSo];
 const laChu = () => S.toi && S.toi.vai_tro === 'chu';
+// ── PQ01: quyền từng nhân viên. Chủ luôn có mọi quyền. Máy chủ cũng chặn – ẩn nút chỉ để gọn mắt.
+const QUYEN = [
+  ['sua_gia_gio', 'Sửa giá dòng trong giỏ (bán khác giá)'], ['doi_gia_ban', 'Đổi giá trong bảng giá'], ['chiet_khau', 'Cho chiết khấu'],
+  ['ghi_no', 'Bán ghi nợ'], ['vuot_han_muc', 'Vượt hạn mức nợ'], ['thu_no', 'Thu tiền nợ khách'], ['xem_no', 'Xem tổng nợ của khách'],
+  ['huy_don', 'Huỷ đơn của mình (30 phút)'], ['tra_hang', 'Nhập trả hàng / đổi thưởng nắp'], ['sua_khach', 'Thêm / sửa khách'],
+  ['nhap_toa', 'Nhập toa NCC, kiểm kho'], ['tra_ncc', 'Trả tiền NCC'], ['bao_cao', 'Xem báo cáo, chốt sổ'],
+];
+const MAU_QUYEN = {
+  co_ban: { ghi_no: true, thu_no: true, xem_no: true, huy_don: true, tra_hang: true, sua_khach: true, nhap_toa: true },
+  tin_cay: { sua_gia_gio: true, chiet_khau: true, ghi_no: true, vuot_han_muc: true, thu_no: true, xem_no: true, huy_don: true, tra_hang: true, sua_khach: true, nhap_toa: true, tra_ncc: true },
+};
+const coQuyen = k => laChu() || !!(S.toi && S.toi.quyen && S.toi.quyen[k]);
 const luuGio = () => { luu('bh_gios', S.gios); luu('bh_gio_so', S.gioSo); };
 // Chuyển sang đơn thứ i (bỏ các đơn trống khác cho gọn)
 function chonGio(i) {
@@ -576,6 +588,7 @@ function veKhung() {
   $('#goc').innerHTML = `
     <div id="dau"><b>${esc(shop)}</b><small>${esc(S.toi ? S.toi.ten : '')}</small>
       <button id="don-cho" class="dong-bo an" data-a="xemDonCho"></button>
+      <button id="yc-duyet" class="dong-bo an" style="background:var(--do);color:#fff" data-a="xemYeuCau"></button>
       <button class="dong-bo" data-a="taiLaiTatCa" title="Tải lại dữ liệu">⟳</button></div>
     <div id="noi-dung"></div>
     <button id="thanh-gio" class="an" data-a="moGio"></button>
@@ -593,7 +606,9 @@ function veTab() {
   veThanhGio();
 }
 HD.taiLaiTatCa = el => chay(el, '…', async () => {
-  await Promise.all([taiHang(true), taiKhach(), taiCauHinh()]);
+  await Promise.all([taiHang(true), taiKhach(), taiCauHinh(),
+    api('nhan_vien?select=*&id=eq.' + S.toi.id).then(r => { if (r[0]) { S.toi = r[0]; luu('bh_toi', S.toi); } }).catch(() => {})]);
+  kiemYeuCau(); veKhung();
   thongBao('Đã tải lại ' + S.hang.length + ' mặt hàng, ' + S.khach.length + ' khách', 'tot'); veTab();
 });
 
@@ -1067,7 +1082,7 @@ function docChietKhau(s, tth) {
 function veDonTam() {
   const o = $('#don-tam'); if (!o) return;
   // Nút nhanh "Trả hàng / Đổi nắp": khách chỉ mang hàng trả hoặc nắp tới (không mua gì) vẫn lên đơn được
-  const nhanh = `<button class="chip phu" data-a="moTraHang">↩ Trả hàng</button><button class="chip phu" data-a="moDoiThuong">🎁 Đổi nắp</button>`;
+  const nhanh = coQuyen('tra_hang') ? `<button class="chip phu" data-a="moTraHang">↩ Trả hàng</button><button class="chip phu" data-a="moDoiThuong">🎁 Đổi nắp</button>` : '';
   o.innerHTML = S.gios.length > 1 || gioCo() ? `<div class="chips don-tam">${S.gios.map((x, i) =>
     `<button class="chip${i === S.gioSo ? '' : ' phu'}" data-a="chonGio" data-i="${i}">${i === S.gioSo ? '✓ ' : ''}${esc(tenKhachGio(x))} · <b>${x.dong.length}</b></button>`).join('')}
     <button class="chip phu" data-a="gioMoi">＋ Đơn mới</button>${nhanh}</div>` : `<div class="chips don-tam">${nhanh}</div>`;
@@ -1085,7 +1100,7 @@ function veGio() {
   const g = S.gio; const t = tinhGio();
   if (!gioCo()) return `<button class="chon-khach" data-a="chonKhach"><span>👤</span><span class="gian"><b>${esc(tenKhachGio())}</b></span><span class="mo">Đổi ▾</span></button>${veTreoGio()}
     <div class="trong">Đơn trống. Bấm vào giá của món hàng để thêm.</div>
-    <div class="hang-nut"><button class="nut" data-a="themTraHang">↩ Khách trả hàng</button><button class="nut" data-a="themThuong">🎁 Đổi thưởng nắp</button></div>`;
+    <div class="hang-nut">${coQuyen('tra_hang') ? `<button class="nut" data-a="themTraHang">↩ Khách trả hàng</button><button class="nut" data-a="themThuong">🎁 Đổi thưởng nắp</button>` : ''}</div>`;
   return `
     <button class="chon-khach" data-a="chonKhach"><span>👤</span><span class="gian"><b>${esc(tenKhachGio())}</b></span><span class="mo">Đổi ▾</span></button>
     ${veTreoGio()}
@@ -1233,8 +1248,61 @@ HD.luuDon = async el => {
     moDon(kq.id);
   } catch (e) {
     if (/kết nối/.test(e.message)) xepDonCho(g, p, t);
+    else if (/^Cần chủ duyệt/.test(e.message)) { dangLuu = false; await xinDuyet(g, t, e.message, el); }
     else thongBao(e.message, 'loi');
   } finally { dangLuu = false; }
+};
+// ── PQ01: nhân viên thiếu quyền → gửi chủ duyệt từ xa, chờ, chủ đồng ý thì tự lưu lại đúng đơn này ──
+async function xinDuyet(g, t, loi, el) {
+  const m = loi.match(/^Cần chủ duyệt: (.*) \[(.*)\]$/) || [];
+  const can = (m[2] || '').split(',').filter(Boolean);
+  // Tóm tắt cho chủ: khách, tổng, các dòng bán khác giá bảng, chiết khấu
+  const khac = g.dong.filter(d => { const bg = ((timHang(d.id) || {}).gia || []).find(x => x.qc === d.qc); return bg && bg.g !== d.gia; })
+    .map(d => { const bg = (timHang(d.id).gia || []).find(x => x.qc === d.qc); return `${d.ten}: ${so(d.sl)} ${d.qc} × ${so(d.gia)} (bảng ${so(bg.g)})`; });
+  const nd = [`Khách: ${tenKhachGio()}`, `Tổng ${tien(t.tong)}` + (g.ht === 'Ghi nợ' ? ' – ghi nợ' : ''), ...khac,
+    t.ck ? 'Chiết khấu ' + tien(t.ck) : '', t.tra || t.thg ? 'Trừ trả hàng/thưởng ' + tien(t.tra + t.thg) : ''].filter(Boolean).join('\n');
+  if (!await hoi('Cần chủ duyệt', [], '🔔 Gửi chủ duyệt', `Bạn chưa có quyền: <b>${esc(m[1] || '')}</b>.<pre style="white-space:pre-wrap;font-family:inherit">${esc(nd)}</pre>Gửi yêu cầu, chủ đồng ý trên máy chủ là đơn tự lưu.`)) return;
+  let yc; try { yc = await cho('Đang gửi…', () => rpc('gui_yeu_cau_duyet', { p: { ma_phieu: g.ma, khach: tenKhachGio(), cac_quyen: can, tong_cong: t.tong, noi_dung: nd } })); }
+  catch (e) { return thongBao(e.message, 'loi'); }
+  S.choDuyet = { id: yc.id, ma: g.ma };
+  moBang('Chờ chủ duyệt', () => `<div class="trong">⏳ Đã gửi chủ duyệt.<br>Giữ màn hình này, chủ đồng ý là đơn tự lưu.</div>
+    <pre class="the" style="white-space:pre-wrap;font-family:inherit">${esc(nd)}</pre>
+    <button class="nut" style="width:100%" data-a="dongBang">Đóng (vẫn chờ – mở giỏ bấm Lưu lại sau khi chủ đồng ý)</button>`, () => { S.choDuyet = null; });
+  // Hỏi máy chủ 4 giây/lần cho tới khi chủ trả lời hoặc đóng màn chờ
+  const hoiLai = async () => {
+    if (!S.choDuyet || S.choDuyet.id !== yc.id) return;
+    let r; try { r = (await api('yeu_cau_duyet?select=trang_thai&id=eq.' + yc.id))[0]; } catch (e) { r = null; }
+    if (r && r.trang_thai === 'dong_y') { S.choDuyet = null; if (S.bangs.length && S.bangs[S.bangs.length - 1].tieuDe === 'Chờ chủ duyệt') { S.bangs.pop(); veBang(); }
+      thongBao('✓ Chủ đã đồng ý – đang lưu đơn', 'tot'); const i = S.gios.findIndex(x => x.ma === g.ma); if (i >= 0) { S.gioSo = i; S.gio = S.gios[i]; }
+      return HD.luuDon(null); }
+    if (r && r.trang_thai === 'tu_choi') { S.choDuyet = null; if (S.bangs.length && S.bangs[S.bangs.length - 1].tieuDe === 'Chờ chủ duyệt') { S.bangs.pop(); veBang(); }
+      return hoi('Chủ không đồng ý', [], 'Đã hiểu', 'Chủ đã từ chối yêu cầu. Sửa lại đơn (giá bảng, bỏ chiết khấu…) rồi lưu.'); }
+    setTimeout(hoiLai, 4000);
+  };
+  setTimeout(hoiLai, 4000);
+}
+// ── PQ01: máy chủ – kiểm tra yêu cầu chờ duyệt 20 giây/lần, hiện thanh đỏ trên đầu app ──
+async function kiemYeuCau() {
+  if (!laChu() || !phien) return;
+  try { S.ycCho = await api('yeu_cau_duyet?select=*&trang_thai=eq.cho&order=tao_luc'); } catch (e) { return; }
+  const b = $('#yc-duyet'); if (!b) return;
+  b.classList.toggle('an', !S.ycCho.length); b.textContent = '🔔 ' + S.ycCho.length + ' yêu cầu chờ duyệt';
+  if (S.bangs.length && S.bangs[S.bangs.length - 1].tieuDe === 'Yêu cầu chờ duyệt') veBang();
+}
+setInterval(() => { if (document.visibilityState === 'visible') kiemYeuCau(); }, 20000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') kiemYeuCau(); });
+HD.xemYeuCau = async () => { await kiemYeuCau(); moBang('Yêu cầu chờ duyệt', veYeuCau); };
+function veYeuCau() {
+  const ds = S.ycCho || [];
+  return ds.length ? `<div class="the ds">${ds.map(y => `<div class="muc"><b>${esc(y.nguoi_gui || '')}</b> <span class="mo">· ${ngayNgan(y.tao_luc)}</span><br>
+      <span class="the-nhan vang">${esc((y.cac_quyen || []).map(k => (QUYEN.find(q => q[0] === k) || [k, k])[1]).join(' · '))}</span>
+      <pre style="white-space:pre-wrap;font-family:inherit;margin:6px 0">${esc(y.noi_dung || '')}</pre>
+      <div class="hang-nut"><button class="nut chinh" data-a="duyetYc" data-id="${y.id}" data-v="1">✓ Đồng ý</button><button class="nut do" data-a="duyetYc" data-id="${y.id}" data-v="0">✗ Từ chối</button></div></div>`).join('')}</div>`
+    : '<div class="trong">Không có yêu cầu nào đang chờ ✓</div>';
+}
+HD.duyetYc = async el => {
+  await chay(el, '…', () => rpc('xu_ly_yeu_cau_duyet', { p_id: Number(el.dataset.id), p_dong_y: el.dataset.v === '1' }));
+  thongBao(el.dataset.v === '1' ? 'Đã đồng ý – máy nhân viên tự lưu đơn' : 'Đã từ chối', 'tot'); await kiemYeuCau(); veBang();
 };
 
 // ── BÁN KHI MẤT MẠNG ──
@@ -1324,7 +1392,7 @@ function traUocTinh(g) {
 }
 function veTruGio(t) {
   const g = S.gio; if (!g.tra.length && !g.thg.length && !g.treo.length)
-    return `<div class="hang-nut" style="margin-top:6px"><button class="nut nho" data-a="themTraHang">↩ Khách trả hàng</button><button class="nut nho" data-a="themThuong">🎁 Đổi thưởng nắp</button></div>`;
+    return `<div class="hang-nut" style="margin-top:6px">${coQuyen('tra_hang') ? `<button class="nut nho" data-a="themTraHang">↩ Khách trả hàng</button><button class="nut nho" data-a="themThuong">🎁 Đổi thưởng nắp</button>` : ''}</div>`;
   const uoc = traUocTinh(g);
   return `<div style="border-top:1px dashed var(--vien);margin-top:8px;padding-top:6px">
     ${uoc.map((u, i) => { const x = u.x; return `<div class="dong" style="margin:6px 0"><div class="gian">↩ <b>${esc(x.ten)}</b><br>
@@ -1339,7 +1407,7 @@ function veTruGio(t) {
         <span class="tien">${x.loai === 'tien' && !x.chuaTra ? '−' + so(x.nap * x.giaTri) : '0'}</span><button class="nut-sua" data-a="xoaThg" data-i="${i}">🗑</button></div>`).join('')}
     ${g.treo.map((x, i) => `<div class="dong" style="margin:6px 0"><div class="gian">⏳ <span class="mo">${esc(x.noi_dung)}</span></div>
         <span class="tien">−${so(x.so_tien)}</span><button class="nut-sua" data-a="boTruTreo" data-i="${i}">🗑</button></div>`).join('')}
-    <div class="hang-nut" style="margin-top:4px"><button class="nut nho" data-a="themTraHang">↩ Trả hàng</button><button class="nut nho" data-a="themThuong">🎁 Đổi thưởng</button></div>
+    <div class="hang-nut" style="margin-top:4px">${coQuyen('tra_hang') ? `<button class="nut nho" data-a="themTraHang">↩ Trả hàng</button><button class="nut nho" data-a="themThuong">🎁 Đổi thưởng</button>` : ''}</div>
     ${t.tra ? `<div class="tong-dong mo"><span>Trừ hàng trả</span><span class="tien">−${tien(t.tra)}</span></div>` : ''}
     ${t.thg ? `<div class="tong-dong mo"><span>Trừ đổi thưởng</span><span class="tien">−${tien(t.thg)}</span></div>` : ''}
     ${t.treo ? `<div class="tong-dong mo"><span>Trừ khoản nợ khách</span><span class="tien">−${tien(t.treo)}</span></div>` : ''}</div>`;
@@ -1785,8 +1853,8 @@ function veChiTietDon(x) {
       ${!huy && x.noCu > 0 ? `<div class="tong-dong mo"><span>Nợ các đơn trước</span><span class="tien">${tien(x.noCu)}</span></div>
         <div class="tong-dong" style="font-weight:700"><span>Khách đang nợ tổng</span><span class="no tien">${tien(x.noCu + no)}</span></div>${nutNoCu()}` : ''}</div>
     ${!huy && no > 0 ? `<div class="the"><h3>Thu tiền</h3><div class="hang-nut" style="margin-top:0">
-        <button class="nut chinh" data-a="thuDon" data-ht="Chuyển khoản">✓ Đã nhận CK ${tien(no)}</button>
-        <button class="nut" data-a="thuDon" data-ht="Tiền mặt">💵 Thu tiền mặt</button>
+        ${coQuyen('thu_no') ? `<button class="nut chinh" data-a="thuDon" data-ht="Chuyển khoản">✓ Đã nhận CK ${tien(no)}</button>
+        <button class="nut" data-a="thuDon" data-ht="Tiền mặt">💵 Thu tiền mặt</button>` : '<span class="mo">Chưa có quyền thu tiền</span>'}
         <button class="nut" data-a="thuMotPhan">Thu một phần</button></div>
       ${qr ? `<img class="qr" src="${qr}" alt="QR chuyển khoản"><p class="mo" style="text-align:center;margin:0">Nội dung CK: <b>${esc(d.id)}</b></p>`
            : laChu() ? '<p class="mo">Thêm số tài khoản ở tab Thêm → Cửa hàng & ngân hàng để hiện mã QR.</p>' : ''}</div>` : ''}
@@ -1795,7 +1863,7 @@ function veChiTietDon(x) {
       <button class="nut" data-a="anhHD">🖼 Ảnh hoá đơn</button>
       <button class="nut" data-a="inHD">🖨 In</button>
       <button class="nut" data-a="lenLaiDon">↻ Lên lại đơn này</button>
-      ${!huy && !tt.length ? `<button class="nut do" data-a="huyDon">Huỷ đơn</button>` : ''}
+      ${!huy && !tt.length && coQuyen('huy_don') ? `<button class="nut do" data-a="huyDon">Huỷ đơn</button>` : ''}
     </div>
     ${!huy && no > 0 && (S.cauHinh.ngan_hang || {}).so_tk ? `<div class="mo" style="margin-top:10px">Thông tin CK trên hoá đơn in / ảnh / copy:</div>
       <div class="chips" style="margin-top:4px">${Object.keys(KIEU_TT).map(k =>
@@ -2038,9 +2106,9 @@ function veChiTietKhach(x) {
       <div class="dong" style="margin-top:10px"><div class="gian"><span class="mo">Đang nợ</span><div class="so-lon ${tongNo ? 'no' : ''} tien">${tien(tongNo)}</div></div>
         ${k.han_muc_no > 0 ? `<span class="mo">hạn mức ${tien(k.han_muc_no)}</span>` : ''}</div>
       <div class="hang-nut">
-        ${tongNo > 0 && !laLe ? `<button class="nut chinh" data-a="thuNo">💵 Thu nợ</button><button class="nut" data-a="nhacNo">📋 Copy nhắc nợ</button>` : ''}
+        ${tongNo > 0 && !laLe && coQuyen('thu_no') ? `<button class="nut chinh" data-a="thuNo">💵 Thu nợ</button><button class="nut" data-a="nhacNo">📋 Copy nhắc nợ</button>` : ''}
         ${!laLe ? `<button class="nut" data-a="lenDonChoKhach">🛒 Lên đơn</button>` : ''}
-        <button class="nut" data-a="suaKhach">✎ Sửa</button></div>
+        ${coQuyen('sua_khach') ? '<button class="nut" data-a="suaKhach">✎ Sửa</button>' : ''}</div>
       ${qr ? `<img class="qr" src="${qr}" alt="QR trả nợ"><p class="mo" style="text-align:center;margin:0">Nội dung CK: <b>NO ${esc(k.id)}</b></p>` : ''}</div>
     ${(x.treo || []).length ? `<h3>⚠ Còn treo với khách (${x.treo.length})</h3><div class="the ds">${x.treo.map(v => `<div class="muc">
       <span class="the-nhan vang">${TREO_NHAN[v.loai] || ''}</span> ${esc(v.noi_dung)} <span class="mo">· ${ngayNgan(v.tao_luc)}</span>
@@ -2112,10 +2180,10 @@ HD.themKhach = async () => { const r = await formKhach(); if (r) veKhach(); };
 // Tab "Khách & nợ": 2 chế độ – Đang nợ (mặc định) / Tất cả khách. Ô tìm dùng chung.
 function veKhach() {
   $('#noi-dung').innerHTML = `<div class="chips" style="margin:0 0 8px">
-      <button class="chip${S.kLoc === 'no' ? '' : ' phu'}" data-a="locKhach" data-k="no">💰 Đang nợ</button>
+      ${coQuyen('xem_no') ? `<button class="chip${S.kLoc === 'no' ? '' : ' phu'}" data-a="locKhach" data-k="no">💰 Đang nợ</button>` : ''}
       <button class="chip${S.kLoc === 'tat' ? '' : ' phu'}" data-a="locKhach" data-k="tat">👥 Tất cả khách (${S.khach.length})</button></div>
     <div class="o-tim dong"><input class="o" data-i="timKhachTab" placeholder="Tìm tên quán / tên chủ / SĐT" value="${esc(S.timKhach)}" autocomplete="off">
-    <button class="nut chinh" data-a="themKhach">＋</button></div><div id="ds-khach"></div>`;
+    ${coQuyen('sua_khach') ? '<button class="nut chinh" data-a="themKhach">＋</button>' : ''}</div><div id="ds-khach"></div>`;
   veDsKhach();
   if (S.kLoc === 'no') taiNo().then(() => { if (S.tab === 'khach' && S.kLoc === 'no') veDsKhach(); })
     .catch(e => { if (!S.noDs && $('#ds-khach')) $('#ds-khach').innerHTML = `<div class="trong">${esc(e.message)}</div>`; });
@@ -2194,11 +2262,13 @@ function veThem() {
       <div class="muc dong" data-a="nhanVien"><span class="gian">👤 <b>Nhân viên</b><br><span class="mo">Tạo tài khoản, duyệt, khoá</span></span>›</div>
       <div class="muc dong" data-a="suaCuaHang"><span class="gian">🏪 <b>Cửa hàng & ngân hàng</b><br>
         <span class="mo">${esc(shop.ten || '')} · ${nh.so_tk ? esc(nh.ten_ngan_hang + ' ' + nh.so_tk) : '<span class="no">chưa có số tài khoản</span>'}</span></span>›</div>
-    </div>` : ''}
+    </div>` : coQuyen('bao_cao') ? `<div class="the ds">
+      <div class="muc dong" data-a="baoCao"><span class="gian">📊 <b>Báo cáo doanh thu</b></span>›</div>
+      <div class="muc dong" data-a="chotSo"><span class="gian">🧮 <b>Chốt sổ cuối ngày</b></span>›</div></div>` : ''}
     <div class="the ds">
       <div class="muc dong" data-a="nccDs"><span class="gian">🚚 <b>Nhà cung cấp</b><br><span class="mo">SĐT, mặt hàng, toa hàng · 🤖 AI đọc toa → giá vốn</span></span>›</div>
       <div class="muc dong" data-a="vtDs"><span class="gian">⏳ <b>Việc còn treo với khách</b><br><span class="mo">Hàng trả chờ kiểm tra · nợ thưởng · khách chờ lấy lại</span></span>›</div>
-      <div class="muc dong" data-a="kkMo"><span class="gian">📋 <b>Kiểm kho</b><br><span class="mo">${S.hang.filter(h => h.ton != null).length} món chủ lực · đếm nhanh, báo lệch</span></span>›</div>
+      ${coQuyen('nhap_toa') ? `<div class="muc dong" data-a="kkMo"><span class="gian">📋 <b>Kiểm kho</b><br><span class="mo">${S.hang.filter(h => h.ton != null).length} món chủ lực · đếm nhanh, báo lệch</span></span>›</div>` : ''}
       <div class="muc dong" data-a="taiLaiTatCa"><span class="gian">⟳ <b>Tải lại dữ liệu</b><br><span class="mo">${S.hang.length} hàng · ${S.khach.length} khách</span></span></div>
       <div class="muc dong" data-a="doiMatKhau"><span class="gian">🔑 <b>Đổi mật khẩu</b></span>›</div>
       <div class="muc dong" data-a="dangXuat"><span class="gian no">⎋ Đăng xuất</span></div>
@@ -2484,12 +2554,26 @@ HD.suaCuaHang = async () => {
 // Nhân viên
 HD.nhanVien = async () => { const ds = await api('nhan_vien?select=*&order=tao_luc'); moBang('Nhân viên', () => veNhanVien(ds)); };
 function veNhanVien(ds) {
-  return `<div class="the ds">${ds.map(n => `<div class="muc dong"><div class="gian"><b>${esc(n.ten)}</b> <span class="the-nhan ${n.vai_tro === 'chu' ? 'xanh' : ''}">${n.vai_tro === 'chu' ? 'Chủ' : 'Nhân viên'}</span>
-      ${n.hoat_dong ? '' : '<span class="the-nhan do">chờ duyệt / khoá</span>'}<br><span class="mo">${esc(n.email || '')}</span></div>
+  return `<div class="the ds">${ds.map(n => `<div class="muc dong"><div class="gian" ${n.vai_tro !== 'chu' ? `data-a="quyenNV" data-id="${esc(n.id)}"` : ''}><b>${esc(n.ten)}</b> <span class="the-nhan ${n.vai_tro === 'chu' ? 'xanh' : ''}">${n.vai_tro === 'chu' ? 'Chủ' : 'Nhân viên'}</span>
+      ${n.hoat_dong ? '' : '<span class="the-nhan do">chờ duyệt / khoá</span>'}<br><span class="mo">${esc(n.email || '')}</span>
+      ${n.vai_tro !== 'chu' ? `<br><span class="mo">🔑 ${QUYEN.filter(q => (n.quyen || {})[q[0]]).length}/${QUYEN.length} quyền · bấm để chỉnh</span>` : '<br><span class="mo">🔑 toàn quyền</span>'}</div>
       ${n.id !== S.toi.id ? `<button class="nut nho ${n.hoat_dong ? 'do' : 'chinh'}" data-a="batTatNV" data-id="${esc(n.id)}" data-v="${n.hoat_dong ? 0 : 1}">${n.hoat_dong ? 'Khoá' : 'Duyệt'}</button>` : ''}</div>`).join('')}</div>
     <button class="nut chinh" style="width:100%" data-a="taoNV">＋ Tạo tài khoản nhân viên</button>
-    <p class="mo">Nhân viên được: bán hàng, thu tiền, thêm/sửa khách, huỷ đơn của mình trong 30 phút.<br>Chỉ chủ: sửa giá, xem báo cáo, huỷ thanh toán, quản lý nhân viên.</p>`;
+    <button class="nut" style="width:100%;margin-top:8px" data-a="xemYeuCau">🔔 Yêu cầu chờ duyệt</button>
+    <p class="mo">Bấm tên nhân viên để bật/tắt từng quyền. Việc nhân viên không có quyền (sửa giá, chiết khấu, vượt hạn mức…) sẽ gửi chủ duyệt.<br>Chỉ chủ: huỷ thanh toán, quản lý nhân viên, sửa mặt hàng.</p>`;
 }
+HD.quyenNV = async el => {
+  const n = (await api('nhan_vien?select=*&id=eq.' + el.dataset.id))[0]; if (!n) return;
+  const q = n.quyen || {};
+  const v = await hoi('Quyền của ' + n.ten, [
+    { k: 'mau', nhan: 'Chọn nhanh', kieu: 'chon', ds: [['', '— tự chọn bên dưới —'], ['co_ban', 'Bán hàng cơ bản'], ['tin_cay', 'Tin cậy (trừ đổi giá, báo cáo)']], gt: '' },
+    ...QUYEN.map(([k, ten]) => ({ k, nhan: ten, kieu: 'hop', gt: !!q[k] })),
+  ], 'Lưu quyền', 'Lên đơn, xem hàng, xem khách: luôn được. Thiếu quyền thì nhân viên gửi chủ duyệt.');
+  if (!v) return;
+  const moi = {}; QUYEN.forEach(([k]) => moi[k] = v.mau ? !!MAU_QUYEN[v.mau][k] : !!v[k]);
+  await cho('Đang lưu…', () => rpc('dat_quyen_nv', { p_id: n.id, p_quyen: moi }));
+  thongBao('Đã lưu quyền của ' + n.ten + ' (máy nhân viên bấm ⟳ để cập nhật)', 'tot'); await veLaiNV();
+};
 async function veLaiNV() { const ds = await api('nhan_vien?select=*&order=tao_luc'); S.bangs[S.bangs.length - 1].ve = () => veNhanVien(ds); veBang(); }
 HD.batTatNV = async el => { await sua('nhan_vien', 'id=eq.' + el.dataset.id, { hoat_dong: el.dataset.v === '1' }); await veLaiNV(); };
 HD.taoNV = async () => {
@@ -2781,7 +2865,7 @@ function veHang() {
         ${S.hCheDo ? '' : '<button class="nut nut-vuong chinh" data-a="hangMoi" title="Thêm mặt hàng">＋</button>'}` : ''}</div>
     <div class="loc">${Object.entries(LOC_HANG).filter(([k]) => k !== 'ngung' || laChu()).map(([k, [ten]]) => { const n = demLoc(k);
       return `<button data-a="locHang" data-k="${k}" class="${S.hLoc === k ? 'chon' : ''}">${ten}${n != null && k !== 'tat' ? `<span class="dem-loc">${n}</span>` : ''}</button>`; }).join('')}
-      ${soChuLuc && !S.hCheDo ? `<button data-a="kkMo">📋 Kiểm kho</button>` : ''}</div>
+      ${soChuLuc && !S.hCheDo && coQuyen('nhap_toa') ? `<button data-a="kkMo">📋 Kiểm kho</button>` : ''}</div>
     ${dms.length ? `<select class="o chon-dm" data-d="dmHangChon">
       <option value="">📂 Mọi danh mục (${S.hang.length})</option>
       ${dms.map(d => `<option value="${esc(d)}" ${S.hDm === d ? 'selected' : ''}>${esc(hoaDau(d))} (${demDm[d]})</option>`).join('')}</select>` : ''}
@@ -2931,7 +3015,7 @@ function veChiTietHang(h) {
       ${h.ton_kho == null ? '<p class="mo" style="margin:0">Không theo dõi tồn kho mặt hàng này. Món bán nhiều nên bật theo dõi để biết lúc sắp hết.</p>'
         : `<div class="so-lon ${h.ton_kho <= (h.ton_toi_thieu || 0) ? 'no' : ''}">${so(h.ton_kho)} ${esc(h.don_vi)}</div>
            ${tonTheoQC(h)}${h.ton_toi_thieu != null ? `<span class="mo">Tối thiểu: ${so(h.ton_toi_thieu)} ${esc(h.don_vi)}</span>` : ''}`}
-      <div class="hang-nut"><button class="nut" data-a="kiemKho">📋 ${h.ton_kho == null ? 'Bắt đầu theo dõi tồn' : 'Kiểm kho / sửa tồn'}</button></div></div>
+      <div class="hang-nut">${coQuyen('nhap_toa') ? `<button class="nut" data-a="kiemKho">📋 ${h.ton_kho == null ? 'Bắt đầu theo dõi tồn' : 'Kiểm kho / sửa tồn'}</button>` : ''}</div></div>
     <div class="the"><h3>Mã vạch</h3>
       ${(h.ma_vach || []).sort((a, b) => a.tao_luc < b.tao_luc ? -1 : 1).map(m => `<div class="dong" style="margin-top:6px"><span class="gian"><b>${esc(m.ma)}</b>
         <span class="the-nhan">${esc(m.quy_cach || h.don_vi)}</span>${m.nguoi ? `<br><span class="mo">gán bởi ${esc(m.nguoi)} · ${ngayNgan(m.tao_luc)}</span>` : ''}</span>
@@ -3057,7 +3141,7 @@ function veChiTietNcc(n) {
       ${n.so_tk || (n.anh_qr || []).length ? `<div style="margin-top:10px;border-top:1px dashed var(--vien);padding-top:10px">
         <span class="mo">Tài khoản nhận tiền</span><br>
         ${n.so_tk ? `🏦 <b>${esc(n.ten_ngan_hang || '')}</b> · <b>${esc(n.so_tk)}</b>${n.ten_tk ? '<br><span class="mo">' + esc(n.ten_tk) + '</span>' : ''}` : '<span class="mo">Có ảnh mã QR của NCC</span>'}
-        <div class="hang-nut" style="margin-top:6px"><button class="nut chinh" data-a="nccQR">📱 Mã QR chuyển khoản</button>
+        <div class="hang-nut" style="margin-top:6px">${coQuyen('tra_ncc') ? '<button class="nut chinh" data-a="nccQR">📱 Mã QR chuyển khoản</button>' : ''}
           ${n.so_tk ? '<button class="nut" data-a="nccCopyTk">📋 Copy số TK</button>' : ''}</div></div>` : ''}
       ${n.han_no_ngay != null || n.dieu_kien_no ? `<p style="margin:8px 0 0">⏱ Được nợ <b>${n.han_no_ngay != null ? n.han_no_ngay + ' ngày' : '—'}</b>${n.dieu_kien_no ? ' · ' + esc(n.dieu_kien_no) : ''} ${nhanHanNcc(n.han)}</p>` : ''}
       ${n.lich_giao ? `<p class="mo" style="margin:8px 0 0">🚚 Lịch giao: ${esc(n.lich_giao)}</p>` : ''}
@@ -3083,8 +3167,8 @@ function veToaNcc(n) {
       <div class="tong-dong"><span>Tổng tiền toa</span><span class="tien">${tien(no.tong_nhap)}</span></div>
       <div class="tong-dong"><span>Đã trả</span><span class="tien">${tien(no.da_tra)}</span></div>
       <div class="tong-dong lon"><span>Còn nợ NCC</span><span class="tien ${Number(no.con_no) > 0 ? 'no' : ''}">${tien(no.con_no)}</span></div>
-      <div class="hang-nut"><button class="nut chinh" data-a="toaThem">📷 Thêm toa</button>
-        <button class="nut" data-a="nccTra">💸 Trả tiền NCC</button></div></div>
+      <div class="hang-nut">${coQuyen('nhap_toa') ? '<button class="nut chinh" data-a="toaThem">📷 Thêm toa</button>' : ''}
+        ${coQuyen('tra_ncc') ? '<button class="nut" data-a="nccTra">💸 Trả tiền NCC</button>' : ''}</div></div>
     ${dong.length ? `<div class="the ds">${dong.map(d => d.loai === 'toa' ? `
       <div class="muc"><div class="dong"><span class="gian">🧾 <b>Toa${d.x.so_toa ? ' số ' + esc(d.x.so_toa) : ''}</b> · ${ngayNgan(d.x.ngay)}<br>
           <span class="mo">${esc(d.x.nguoi_nhap || '')}${d.x.ghi_chu ? ' · ' + esc(d.x.ghi_chu) : ''}</span></span>
@@ -3561,7 +3645,7 @@ async function vaoApp() {
   S.toi = nv[0] || null; luu('bh_toi', S.toi);
   if (!S.toi || !S.toi.hoat_dong) return veChoDuyet();
   await Promise.all([taiCauHinh(), taiKhach(), S.hang.length ? Promise.resolve() : taiHang(true)]);
-  veKhung();
+  veKhung(); kiemYeuCau();
   if (Date.now() - S.hangLuc > 60e3) taiHang(true).catch(() => {});
   guiDonCho();
 }
