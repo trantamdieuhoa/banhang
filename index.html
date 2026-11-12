@@ -201,7 +201,7 @@ setTimeout(function () {
 
 // ── 1. CẤU HÌNH ──────────────────────────────────────────────────────
 // Số bản hiện ở cuối tab Thêm. MỖI LẦN ĐƯA BẢN MỚI LÊN PHẢI ĐỔI SỐ NÀY (để biết điện thoại đã nhận bản mới chưa).
-const BAN = '2.7';
+const BAN = '2.8';
 const CFG = {
   url: 'https://mrfwdmpdkhnhfblldzba.supabase.co',
   key: 'sb_publishable_92KnloG8NcjLUmpr92s6xw_7yPlsYJ3',  // khoá CÔNG KHAI – để ở đây là an toàn
@@ -450,7 +450,9 @@ async function napAnh() {
 // ── 4. DỮ LIỆU ───────────────────────────────────────────────────────
 // Mỗi đơn đang lên có 1 "mã phiếu" riêng. Bấm Lưu 2 lần (mạng chập chờn) → máy chủ thấy trùng mã, không tạo đơn thứ 2.
 const maPhieu = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-const gioMoi = () => ({ kh: null, khMoi: null, dong: [], ht: 'Tiền mặt', ck: '', gc: '', ma: maPhieu() });
+const gioMoi = () => ({ kh: null, khMoi: null, dong: [], tra: [], thg: [], treo: [], ht: 'Tiền mặt', ck: '', gc: '', ma: maPhieu() });
+// Giỏ có "việc" chưa: món bán / hàng khách trả / nắp đổi thưởng / khoản treo trừ vào đơn
+const gioCo = g => !!((g = g || S.gio).dong.length || (g.tra || []).length || (g.thg || []).length || (g.treo || []).length);
 const S = {
   toi: doc('bh_toi'),                           // dòng nhan_vien của người đang dùng
   hang: (doc('bh_hang') || {}).hang || [],      // danh mục hàng (lưu sẵn trên máy → mở app là có ngay)
@@ -465,19 +467,19 @@ const S = {
   hTim: '', hLoc: 'tat', hDm: '', hSo: 60,       // tab Hàng: chữ tìm, bộ lọc, danh mục, số dòng đang hiện
   bangs: [],                                    // chồng các bảng trượt đang mở
 };
-S.gios.forEach(g => { if (!g.ma) g.ma = maPhieu(); });
+S.gios.forEach(g => { if (!g.ma) g.ma = maPhieu(); g.tra = g.tra || []; g.thg = g.thg || []; g.treo = g.treo || []; });
 S.gioSo = Math.max(0, Math.min(S.gioSo, S.gios.length - 1)); S.gio = S.gios[S.gioSo];
 const laChu = () => S.toi && S.toi.vai_tro === 'chu';
 const luuGio = () => { luu('bh_gios', S.gios); luu('bh_gio_so', S.gioSo); };
 // Chuyển sang đơn thứ i (bỏ các đơn trống khác cho gọn)
 function chonGio(i) {
   const g = S.gios[i] || S.gios[0];
-  S.gios = S.gios.filter(x => x === g || x.dong.length || x.kh || x.khMoi);
+  S.gios = S.gios.filter(x => x === g || gioCo(x) || x.kh || x.khMoi);
   S.gioSo = S.gios.indexOf(g); S.gio = g; luuGio();
 }
 // Mở 1 đơn trống mới (đơn đang mở mà trống thì dùng luôn)
 function moGioMoi() {
-  if (!S.gio.dong.length && !S.gio.kh && !S.gio.khMoi) return true;
+  if (!gioCo() && !S.gio.kh && !S.gio.khMoi) return true;
   if (S.gios.length >= CFG.soDonTamToiDa) { thongBao('Đang có ' + S.gios.length + ' đơn lên dở – lưu bớt rồi mở thêm', 'loi'); return false; }
   S.gios.push(gioMoi()); chonGio(S.gios.length - 1); return true;
 }
@@ -1017,7 +1019,12 @@ const noCuGio = () => { const kh = S.gio.kh && S.khach.find(k => k.id === S.gio.
 function tinhGio() {
   const tth = S.gio.dong.reduce((s, d) => s + Math.round(d.sl * d.gia), 0);
   const ck = docChietKhau(S.gio.ck, tth);
-  return { tth, ck, tong: Math.max(tth - ck, 0) };
+  // TH01: trừ tiếp hàng khách trả (phần được trừ), thưởng nắp trả ngay bằng tiền, khoản mình nợ khách
+  const tra = traUocTinh(S.gio).reduce((s, x) => s + x.tru, 0);
+  const thg = (S.gio.thg || []).reduce((s, x) => s + (x.loai === 'tien' && !x.chuaTra ? x.nap * x.giaTri : 0), 0);
+  const treo = (S.gio.treo || []).reduce((s, x) => s + Number(x.so_tien), 0);
+  const con = Math.max(tth - ck, 0) - tra - thg - treo;
+  return { tth, ck, tra, thg, treo, tong: Math.max(con, 0), du: Math.max(-con, 0) };
 }
 // Chiết khấu: "10" = 10.000đ (như gõ tiền) · "5%" = 5% tiền hàng (làm tròn đến 1.000đ)
 function docChietKhau(s, tth) {
@@ -1029,24 +1036,29 @@ function docChietKhau(s, tth) {
 // Thanh "đơn đang lên dở": chỉ hiện khi có từ 2 đơn, hoặc đơn hiện tại đã có món (để mở thêm đơn)
 function veDonTam() {
   const o = $('#don-tam'); if (!o) return;
-  o.innerHTML = S.gios.length > 1 || S.gio.dong.length ? `<div class="chips don-tam">${S.gios.map((x, i) =>
+  // Nút nhanh "Trả hàng / Đổi nắp": khách chỉ mang hàng trả hoặc nắp tới (không mua gì) vẫn lên đơn được
+  const nhanh = `<button class="chip phu" data-a="moTraHang">↩ Trả hàng</button><button class="chip phu" data-a="moDoiThuong">🎁 Đổi nắp</button>`;
+  o.innerHTML = S.gios.length > 1 || gioCo() ? `<div class="chips don-tam">${S.gios.map((x, i) =>
     `<button class="chip${i === S.gioSo ? '' : ' phu'}" data-a="chonGio" data-i="${i}">${i === S.gioSo ? '✓ ' : ''}${esc(tenKhachGio(x))} · <b>${x.dong.length}</b></button>`).join('')}
-    <button class="chip phu" data-a="gioMoi">＋ Đơn mới</button></div>` : '';
+    <button class="chip phu" data-a="gioMoi">＋ Đơn mới</button>${nhanh}</div>` : `<div class="chips don-tam">${nhanh}</div>`;
 }
 function veThanhGio() {
   veDonTam();
   const b = $('#thanh-gio'); if (!b) return;
-  const n = S.gio.dong.length;
-  b.classList.toggle('an', !n || S.tab !== 'ban');
-  b.innerHTML = `<span>🛒</span><span class="gian"><b>${n} món</b> · ${esc(tenKhachGio())}</span><b class="tien">${tien(tinhGio().tong)}</b><span>›</span>`;
+  const n = S.gio.dong.length, t = tinhGio(), phu = S.gio.tra.length + S.gio.thg.length;
+  b.classList.toggle('an', !gioCo() || S.tab !== 'ban');
+  b.innerHTML = `<span>🛒</span><span class="gian"><b>${n} món</b>${phu ? ' <span class="mo">+' + phu + ' trả/đổi</span>' : ''} · ${esc(tenKhachGio())}</span><b class="tien">${t.du ? '↩ ' + tien(t.du) : tien(t.tong)}</b><span>›</span>`;
 }
 
 HD.moGio = () => moBang('Đơn hàng', veGio);
 function veGio() {
   const g = S.gio; const t = tinhGio();
-  if (!g.dong.length) return '<div class="trong">Đơn trống. Bấm vào giá của món hàng để thêm.</div>';
+  if (!gioCo()) return `<button class="chon-khach" data-a="chonKhach"><span>👤</span><span class="gian"><b>${esc(tenKhachGio())}</b></span><span class="mo">Đổi ▾</span></button>${veTreoGio()}
+    <div class="trong">Đơn trống. Bấm vào giá của món hàng để thêm.</div>
+    <div class="hang-nut"><button class="nut" data-a="themTraHang">↩ Khách trả hàng</button><button class="nut" data-a="themThuong">🎁 Đổi thưởng nắp</button></div>`;
   return `
     <button class="chon-khach" data-a="chonKhach"><span>👤</span><span class="gian"><b>${esc(tenKhachGio())}</b></span><span class="mo">Đổi ▾</span></button>
+    ${veTreoGio()}
     <div class="the">${g.dong.map((d, i) => `
       <div class="dong-gio"><div class="dong"><div class="gian"><b>${esc(d.ten)}</b><br>
         <button class="gia-sua" data-a="suaGiaDong" data-i="${i}">${esc(d.qc)} · ${tien(d.gia)}</button>
@@ -1062,7 +1074,9 @@ function veGio() {
       <div class="tong-dong"><span>Chiết khấu</span><span style="width:130px"><input class="o" style="padding:6px 10px;text-align:right" inputmode="decimal" data-d="chietKhau" value="${esc(g.ck)}" placeholder="10k / 5%"></span></div>
       ${t.ck ? `<div class="tong-dong mo"><span></span><span>− ${tien(t.ck)}${/%/.test(g.ck) ? ' (' + esc(g.ck.trim()) + ')' : ''}</span></div>` : ''}
       ${t.ck && t.ck >= t.tth ? '<div class="tong-dong"><span></span><span class="no">⚠ Chiết khấu ≥ tiền hàng – kiểm tra lại</span></div>' : ''}
-      <div class="tong-dong lon"><span>TỔNG CỘNG</span><span class="tien">${tien(t.tong)}</span></div>
+      ${veTruGio(t)}
+      <div class="tong-dong lon"><span>${t.du ? 'KHÁCH TRẢ' : 'TỔNG CỘNG'}</span><span class="tien">${tien(t.tong)}</span></div>
+      ${t.du ? veDuGio(t) : ''}
       ${noCuGio() ? `${kemNoCu() ? `<div class="tong-dong"><span>Nợ cũ</span><span class="no tien">${tien(noCuGio())}</span></div>
         <div class="tong-dong" style="font-weight:700"><span>Tổng phải trả</span><span class="tien">${tien(noCuGio() + t.tong)}</span></div>` : ''}${nutNoCu()}` : ''}
     </div>
@@ -1074,7 +1088,7 @@ function veGio() {
     <label class="nhan">Ghi chú (giao giờ nào, địa chỉ…)</label>
     <input class="o" data-d="ghiChu" value="${esc(g.gc)}">
     <div class="hang-nut"><button class="nut" data-a="copyBaoGia">📋 Copy báo giá</button>
-      <button class="nut chinh" data-a="luuDon" style="flex:2">Lưu đơn ${tien(t.tong)}</button></div>
+      <button class="nut chinh" data-a="luuDon" style="flex:2">Lưu đơn ${t.du ? '· trả lại ' + tien(t.du) : tien(t.tong)}</button></div>
     <div class="hang-nut"><button class="nut nho do" data-a="xoaGio">Xoá hết đơn</button></div>`;
 }
 const capNhatGio = () => { luuGio(); veBang(); veThanhGio(); };
@@ -1126,11 +1140,13 @@ GO.timKhachGio = el => {
 HD.datKhach = el => {
   const k = S.khach.find(x => x.id === el.dataset.id);
   S.gio.kh = k ? { id: k.id, ten: k.ten, sdt: k.sdt } : null; S.gio.khMoi = null; S.timKhach = '';
-  luuGio(); dongBang(); if (S.tab === 'ban') veBan(); veThanhGio();
+  S.gio.treo = []; luuGio(); dongBang(); if (S.tab === 'ban') veBan(); veThanhGio();
+  if (k) baoTreoKhach(k.id);
+  if (S.gio.tra.length) kiemLaiTra();
 };
 HD.chonKhachMoi = () => {
   const ten = $('#km-ten').value.trim(); if (!ten) return thongBao('Chưa nhập tên khách', 'loi');
-  S.gio.kh = null; S.gio.khMoi = { ten, sdt: $('#km-sdt').value.trim() }; S.timKhach = '';
+  S.gio.kh = null; S.gio.khMoi = { ten, sdt: $('#km-sdt').value.trim() }; S.timKhach = ''; S.gio.treo = [];
   luuGio(); dongBang(); if (S.tab === 'ban') veBan(); veThanhGio();
 };
 
@@ -1138,7 +1154,9 @@ HD.copyBaoGia = () => {
   const t = tinhGio();
   const dong = S.gio.dong.map((d, i) => `${i + 1}. ${d.ten} – ${so(d.sl)} ${d.qc} x ${so(d.gia)} = ${so(Math.round(d.sl * d.gia))}`);
   copy(`BÁO GIÁ${S.gio.kh || S.gio.khMoi ? ' – ' + tenKhachGio().replace(' (mới)', '') : ''}\n${dong.join('\n')}\n` +
-       (t.ck ? `Tiền hàng: ${tien(t.tth)}\nChiết khấu: -${tien(t.ck)}\n` : '') + `TỔNG: ${tien(t.tong)}` +
+       (t.ck ? `Tiền hàng: ${tien(t.tth)}\nChiết khấu: -${tien(t.ck)}\n` : '') +
+       (t.tra ? `Trừ hàng trả: -${tien(t.tra)}\n` : '') + (t.thg ? `Trừ đổi thưởng: -${tien(t.thg)}\n` : '') + (t.treo ? `Trừ khoản nợ khách: -${tien(t.treo)}\n` : '') +
+       `TỔNG: ${tien(t.tong)}` + (t.du ? `\nTrả lại khách / trừ nợ cũ: ${tien(t.du)}` : '') +
        (kemNoCu() && noCuGio() ? `\nNợ cũ: ${tien(noCuGio())}\nTỔNG PHẢI TRẢ: ${tien(noCuGio() + t.tong)}` : ''));
 };
 
@@ -1148,7 +1166,7 @@ HD.luuDon = async el => {
   const g = S.gio; const t = tinhGio();
   if (g.ht === 'Ghi nợ' && !g.kh && !g.khMoi) return thongBao('Ghi nợ thì phải chọn khách', 'loi');
   // Chiết khấu bằng/lớn hơn tiền hàng → đơn 0đ: gần như chắc gõ nhầm, hỏi lại
-  if (t.ck && t.ck >= t.tth && !await xacNhan(`Chiết khấu ${tien(t.ck)} ≥ tiền hàng ${tien(t.tth)} → đơn thành 0đ. Vẫn lưu?`, 'Vẫn lưu')) return;
+  if (t.ck && t.tth && t.ck >= t.tth && !await xacNhan(`Chiết khấu ${tien(t.ck)} ≥ tiền hàng ${tien(t.tth)} → đơn thành 0đ. Vẫn lưu?`, 'Vẫn lưu')) return;
   const kh = g.kh && S.khach.find(k => k.id === g.kh.id);
   if (g.ht === 'Ghi nợ' && kh && kh.han_muc_no > 0 && kh.con_no + t.tong > kh.han_muc_no &&
       !await xacNhan(`${kh.ten} sẽ nợ ${tien(kh.con_no + t.tong)}, vượt hạn mức ${tien(kh.han_muc_no)}. Vẫn ghi nợ?`, 'Vẫn ghi nợ')) return;
@@ -1159,6 +1177,11 @@ HD.luuDon = async el => {
     // (Bảng giá có đổi trong lúc lên đơn thì giỏ hiện nhãn "Bảng giá vừa đổi" để các cháu tự quyết.)
     items: g.dong.map(d => ({ hang_hoa_id: d.id, quy_cach: d.qc, so_luong: d.sl, so_luong_quy_doi: d.qd,
       don_gia: d.gia, luu_gia: d.luuGia })),
+    // TH01: hàng khách trả, nắp đổi thưởng, khoản treo trừ vào đơn (máy chủ tự kiểm tra lại & tính tiền)
+    tra_hang: g.tra.map(x => ({ hang_hoa_id: x.id, quy_cach: x.qc, so_luong_quy_doi: x.qd, so_luong: x.sl, don_gia: x.gia,
+      ly_do: x.lyDo, hang_tot: x.tot, doi_lay_lai: x.doiLai })),
+    doi_thuong: g.thg.map(x => ({ chuong_trinh_id: x.ct, muc: x.muc, so_nap: x.nap, chua_tra: x.chuaTra })),
+    tru_treo: g.treo.map(x => x.id),
   };
   // Máy đang báo mất mạng → khỏi thử, cho vào hàng chờ luôn
   if (navigator.onLine === false) return xepDonCho(g, p, t);
@@ -1168,7 +1191,13 @@ HD.luuDon = async el => {
     const coGiaMoi = g.dong.some(d => d.luuGia);
     xoaGioDangMo(g); S.bangs = []; veBang();
     if (kq.trung) thongBao('Đơn này đã được lưu từ lần bấm trước (' + kq.id + ') – không tạo thêm đơn. Kiểm tra lại các món.', 'tot');
-    else thongBao('Đã lưu đơn ' + kq.id + (S.gios.length > 1 || S.gio.dong.length ? ' · còn ' + S.gios.filter(x => x.dong.length).length + ' đơn đang lên dở' : ''), 'tot');
+    else thongBao('Đã lưu đơn ' + kq.id + (S.gios.length > 1 || gioCo() ? ' · còn ' + S.gios.filter(x => gioCo(x)).length + ' đơn đang lên dở' : ''), 'tot');
+    // Báo rõ tiền phải trả lại khách / đã trừ nợ cũ / phần chờ chủ kiểm tra
+    if (!kq.trung && (kq.tien_tra_lai > 0 || kq.tien_can_tru > 0 || kq.cho_kiem_tra > 0))
+      await hoi('Đơn ' + kq.id, [], 'Đã hiểu', [kq.tien_can_tru > 0 ? 'Đã trừ vào nợ cũ: <b>' + tien(kq.tien_can_tru) + '</b>' : '',
+        kq.tien_tra_lai > 0 ? '<b class="no">TRẢ LẠI KHÁCH TIỀN MẶT: ' + tien(kq.tien_tra_lai) + '</b>' : '',
+        kq.cho_kiem_tra > 0 ? '⏳ ' + kq.cho_kiem_tra + ' dòng trả hàng KHÔNG trừ tiền – chờ chủ kiểm tra rồi báo lại khách' : ''].filter(Boolean).join('<br>'));
+    if (kq.khach_hang_id) delete S.treoKh[kq.khach_hang_id];
     taiKhach().catch(() => {});
     if (coGiaMoi) taiHang(true).catch(() => {});
     moDon(kq.id);
@@ -1185,7 +1214,7 @@ HD.luuDon = async el => {
 S.donCho = doc('bh_don_cho') || [];
 const luuDonCho = () => { luu('bh_don_cho', S.donCho); veDonCho(); };
 function xepDonCho(g, p, t) {
-  if (!S.donCho.some(x => x.ma === g.ma)) S.donCho.push({ ma: g.ma, p, gio: JSON.parse(JSON.stringify(g)), ten: tenKhachGio(g), tong: t.tong, so: g.dong.length, luc: Date.now() });
+  if (!S.donCho.some(x => x.ma === g.ma)) S.donCho.push({ ma: g.ma, p, gio: JSON.parse(JSON.stringify(g)), ten: tenKhachGio(g), tong: t.tong, so: g.dong.length + g.tra.length + g.thg.length, luc: Date.now() });
   luuDonCho(); xoaGioDangMo(g); S.bangs = []; veBang();
   thongBao('📶 Mất mạng – đã lưu tạm đơn ' + tenKhachGio(g) + ' (' + tien(t.tong) + '). Có mạng app tự gửi.', 'tot');
 }
@@ -1230,7 +1259,7 @@ HD.donChoVeGio = el => {
   const x = S.donCho.find(y => y.ma === el.dataset.ma); if (!x) return;
   if (S.gios.length >= CFG.soDonTamToiDa) return thongBao('Đang có nhiều đơn lên dở – lưu bớt trước', 'loi');
   S.donCho = S.donCho.filter(y => y.ma !== x.ma); luuDonCho();
-  if (!S.gio.dong.length && !S.gio.kh && !S.gio.khMoi) S.gios.splice(S.gioSo, 1);   // bỏ giỏ trống đang mở
+  if (!gioCo() && !S.gio.kh && !S.gio.khMoi) S.gios.splice(S.gioSo, 1);   // bỏ giỏ trống đang mở
   S.gios.push(x.gio); chonGio(S.gios.length - 1);              // giữ nguyên mã phiếu → không sinh đơn trùng
   S.bangs = []; veBang(); S.tab = 'ban'; veKhung(); moBang('Đơn hàng', veGio);
   thongBao('Đã đưa đơn ' + x.ten + ' về giỏ', 'tot');
@@ -1240,6 +1269,249 @@ HD.donChoXoa = async el => {
   if (!await xacNhan('Bỏ hẳn đơn ' + x.ten + ' (' + tien(x.tong) + ')? Đơn này sẽ không được gửi.', 'Bỏ đơn')) return;
   S.donCho = S.donCho.filter(y => y.ma !== x.ma); luuDonCho(); veBang();
 };
+
+// ── 6c. TRẢ HÀNG & ĐỔI THƯỞNG NẮP (TH01) ─────────────────────────────
+// Giỏ có thêm 3 danh sách:
+//   g.tra  = hàng khách trả   {id, ten, qc, qd, sl, gia, lyDo, tot, doiLai, kh, conDuoc, nguonGia}
+//            conDuoc = số khách còn được trả (đơn vị nhỏ nhất) do máy chủ tính; khách lẻ = 0
+//   g.thg  = nắp đổi thưởng   {ct, ctTen, muc, loai:'tien'|'hang', giaTri, hhId, slHang, nap, chuaTra}
+//   g.treo = khoản mình nợ khách từ trước, chủ bấm "Trừ vào đơn này" {id, so_tien, noi_dung}
+// Tiền trên giỏ chỉ là ƯỚC TÍNH để báo khách; máy chủ (tao_don_hang) kiểm tra & tính lại khi lưu.
+S.treoKh = {};          // việc treo đang mở theo khách: { KH0001: [..] }
+S.ctThuong = null;      // chương trình thưởng (tải khi cần)
+const LY_DO_TRA = ['Hết hạn', 'Hư / bể / móp', 'Không bán được', 'Giao nhầm', 'Khác'];
+
+// Chia mỗi dòng trả: phần được trừ tiền (≤ số khách còn được trả) / phần chờ chủ kiểm tra
+function traUocTinh(g) {
+  const con = {};   // số còn được trả còn lại theo món (nhiều dòng cùng món dùng chung)
+  return (g.tra || []).map(x => {
+    if (x.doiLai) return { x, tru: 0, cho: 0, doiLai: true };
+    if (!(x.id in con)) con[x.id] = x.conDuoc == null ? Infinity : Number(x.conDuoc);   // null = chưa kiểm được (mất mạng)
+    const slDuoc = Math.max(0, Math.min(x.sl, Math.floor(con[x.id] / x.qd * 1000) / 1000));
+    con[x.id] -= slDuoc * x.qd;
+    return { x, tru: Math.round(slDuoc * x.gia), cho: +(x.sl - slDuoc).toFixed(3), slDuoc };
+  });
+}
+function veTruGio(t) {
+  const g = S.gio; if (!g.tra.length && !g.thg.length && !g.treo.length)
+    return `<div class="hang-nut" style="margin-top:6px"><button class="nut nho" data-a="themTraHang">↩ Khách trả hàng</button><button class="nut nho" data-a="themThuong">🎁 Đổi thưởng nắp</button></div>`;
+  const uoc = traUocTinh(g);
+  return `<div style="border-top:1px dashed var(--vien);margin-top:8px;padding-top:6px">
+    ${uoc.map((u, i) => { const x = u.x; return `<div class="dong" style="margin:6px 0"><div class="gian">↩ <b>${esc(x.ten)}</b><br>
+        <span class="mo">trả ${so(x.sl)} ${esc(x.qc)} × ${so(x.gia)} · ${esc(x.lyDo || '')}${x.tot ? '' : ' · hư, không nhập kho'}</span>
+        ${u.doiLai ? '<br><span class="the-nhan xanh">đổi hàng mới sau – không trừ tiền</span>' : ''}
+        ${u.cho > 0 ? `<br><span class="the-nhan do">⏳ ${so(u.cho)} ${esc(x.qc)} chờ chủ kiểm tra – KHÔNG trừ tiền (${x.kh === 'KHLE' || !x.kh ? 'khách lẻ' : x.conDuoc > 0 ? 'vượt số khách đã mua' : 'khách chưa từng mua món này'})</span>` : ''}
+        ${x.conDuoc == null && !u.doiLai ? '<br><span class="the-nhan vang">chưa kiểm tra được lịch sử mua (mất mạng) – máy chủ kiểm khi lưu</span>' : ''}</div>
+        <span class="tien">${u.tru ? '−' + so(u.tru) : '0'}</span><button class="nut-sua" data-a="xoaTra" data-i="${i}">🗑</button></div>`; }).join('')}
+    ${g.thg.map((x, i) => `<div class="dong" style="margin:6px 0"><div class="gian">🎁 <b>${esc(x.ctTen)}</b><br>
+        <span class="mo">${x.nap} nắp × ${esc(x.muc)}${x.loai === 'hang' ? ' → đưa khách ' + so(x.nap * x.slHang) + ' ' + esc(((timHang(x.hhId) || {}).dv) || 'lon') : ''}</span>
+        ${x.chuaTra ? '<br><span class="the-nhan vang">chưa trả khách – đơn sau nhắc</span>' : ''}</div>
+        <span class="tien">${x.loai === 'tien' && !x.chuaTra ? '−' + so(x.nap * x.giaTri) : '0'}</span><button class="nut-sua" data-a="xoaThg" data-i="${i}">🗑</button></div>`).join('')}
+    ${g.treo.map((x, i) => `<div class="dong" style="margin:6px 0"><div class="gian">⏳ <span class="mo">${esc(x.noi_dung)}</span></div>
+        <span class="tien">−${so(x.so_tien)}</span><button class="nut-sua" data-a="boTruTreo" data-i="${i}">🗑</button></div>`).join('')}
+    <div class="hang-nut" style="margin-top:4px"><button class="nut nho" data-a="themTraHang">↩ Trả hàng</button><button class="nut nho" data-a="themThuong">🎁 Đổi thưởng</button></div>
+    ${t.tra ? `<div class="tong-dong mo"><span>Trừ hàng trả</span><span class="tien">−${tien(t.tra)}</span></div>` : ''}
+    ${t.thg ? `<div class="tong-dong mo"><span>Trừ đổi thưởng</span><span class="tien">−${tien(t.thg)}</span></div>` : ''}
+    ${t.treo ? `<div class="tong-dong mo"><span>Trừ khoản nợ khách</span><span class="tien">−${tien(t.treo)}</span></div>` : ''}</div>`;
+}
+// Phần trừ nhiều hơn tiền hàng → trừ nợ cũ trước, còn lại trả tiền mặt
+function veDuGio(t) {
+  const no = noCuGio(), tru = Math.min(no, t.du);
+  return `${tru ? `<div class="tong-dong"><span>↳ Trừ vào nợ cũ</span><span class="tien">${tien(tru)}</span></div>` : ''}
+    ${t.du - tru > 0 ? `<div class="tong-dong" style="font-weight:700"><span class="no">↳ Trả lại khách tiền mặt</span><span class="no tien">${tien(t.du - tru)}</span></div>` : ''}`;
+}
+
+// ── Việc còn treo với khách (nhắc ở đơn sau) ──
+const TREO_NHAN = { no_thuong_tien: '🎁 Nợ thưởng', no_thuong_hang: '🎁 Nợ thưởng', kh_lay_lai: '↩ Khách chờ lấy lại', cho_kiem_tra: '⏳ Chờ chủ kiểm tra', no_tien: '💵 Nợ khách' };
+async function taiTreo(khId) {
+  if (!khId || khId === 'KHLE') return [];
+  S.treoKh[khId] = await api('viec_treo_khach?select=*&trang_thai=eq.mo&khach_hang_id=eq.' + encodeURIComponent(khId) + '&order=tao_luc');
+  return S.treoKh[khId];
+}
+// Chọn khách → có việc treo thì báo ngay
+async function baoTreoKhach(khId) {
+  try { const ds = await taiTreo(khId); if (ds.length) thongBao('⚠ Khách này còn ' + ds.length + ' việc treo (nợ thưởng / trả hàng…) – xem trong giỏ', 'loi');
+    if (S.bangs.length && S.bangs[S.bangs.length - 1].tieuDe === 'Đơn hàng') veBang(); } catch (e) { /* mất mạng: bỏ qua */ }
+}
+// Nút xử lý 1 việc treo (chủ). noi: 'gio' = đang ở giỏ (cho phép trừ vào đơn)
+function nutTreo(v, noi) {
+  if (!laChu()) return '<span class="mo"> · báo chủ xác nhận</span>';
+  const n = (kq, chu, lop) => `<button class="nut nho${lop ? ' ' + lop : ''}" data-a="xuLyTreo" data-id="${v.id}" data-kq="${kq}">${chu}</button>`;
+  const daTru = noi === 'gio' && S.gio.treo.some(x => x.id === v.id);
+  if (v.loai === 'cho_kiem_tra') return n('nhan_tra', '✓ Vẫn nhận trả', 'chinh') + n('khong_nhan', '✗ Không nhận (đã báo khách)');
+  if (v.loai === 'no_thuong_tien' || v.loai === 'no_tien')
+    return (noi === 'gio' ? (daTru ? '<span class="the-nhan xanh">đã trừ vào đơn này</span>' : `<button class="nut nho chinh" data-a="truTreo" data-id="${v.id}">− Trừ vào đơn này</button>`) : '')
+      + n('da_tra', '💵 Đã trả tiền mặt');
+  return n('da_tra', '✓ Đã đưa hàng cho khách', 'chinh');
+}
+function veTreoGio() {
+  const kh = S.gio.kh; if (!kh) return '';
+  const ds = S.treoKh[kh.id];
+  if (ds === undefined) { taiTreo(kh.id).then(d => { if (d.length && S.bangs.length && S.bangs[S.bangs.length - 1].tieuDe === 'Đơn hàng') veBang(); }).catch(() => {}); return ''; }
+  if (!ds.length) return '';
+  return `<div class="the" style="border:2px solid var(--vang)"><b>⚠ Còn treo với khách (${ds.length})</b>
+    ${ds.map(v => `<div style="margin-top:8px"><span class="the-nhan vang">${TREO_NHAN[v.loai] || v.loai}</span> ${esc(v.noi_dung)}
+      <span class="mo">· ${ngayNgan(v.tao_luc)}</span><div class="hang-nut" style="margin-top:4px">${nutTreo(v, 'gio')}</div></div>`).join('')}</div>`;
+}
+HD.truTreo = el => {
+  const v = (S.treoKh[S.gio.kh && S.gio.kh.id] || []).find(x => x.id == el.dataset.id); if (!v) return;
+  if (!S.gio.treo.some(x => x.id === v.id)) S.gio.treo.push({ id: v.id, so_tien: Number(v.so_tien), noi_dung: v.noi_dung });
+  capNhatGio();
+};
+HD.boTruTreo = el => { S.gio.treo.splice(el.dataset.i, 1); capNhatGio(); };
+const CAU_TREO = { nhan_tra: 'Vẫn NHẬN hàng khách trả? Tiền sẽ trừ vào nợ cũ của khách, còn dư thì ghi "nợ khách" để đơn sau trừ.',
+  khong_nhan: 'KHÔNG nhận hàng trả này (đã báo lại khách)? Không trừ tiền.', da_tra: 'Xác nhận ĐÃ TRẢ cho khách?', dong: 'Bỏ việc này (không làm gì thêm)?' };
+HD.xuLyTreo = async el => {
+  const id = Number(el.dataset.id), kq = el.dataset.kq;
+  if (!await xacNhan(CAU_TREO[kq], 'Đồng ý')) return;
+  const r = await chay(el, '…', () => rpc('xu_ly_viec_treo', { p_id: id, p_kq: kq }));
+  if (!r) return;
+  thongBao(r.ket_qua, 'tot');
+  for (const k in S.treoKh) S.treoKh[k] = S.treoKh[k].filter(v => v.id !== id);
+  S.gio.treo = S.gio.treo.filter(x => x.id !== id); luuGio();
+  const kh = S.gio.kh; if (kh) await taiTreo(kh.id).catch(() => {});
+  if (S.vt) await taiViecTreo().catch(() => {});
+  taiKhach().catch(() => {});
+  const b = S.bangs[S.bangs.length - 1]; if (b && b.kx) await taiLaiKhach(); else veBang();
+};
+
+// ── Thêm dòng trả hàng ──
+HD.themTraHang = async () => {
+  const id = await timChonMon('Món khách trả'); if (!id) return;
+  const h = timHang(id); if (!h) return;
+  const qcs = h.gia.length ? h.gia.map(x => [x.qc + '|' + x.qd, x.qc]) : [[h.dv + '|1', h.dv]];
+  const v = await hoi('Trả: ' + h.ten, [
+    { k: 'qc', nhan: 'Quy cách', kieu: 'chon', ds: qcs, gt: qcs[0][0] },
+    { k: 'sl', nhan: 'Số lượng trả', kieu: 'so', gt: 1 },
+    { k: 'lyDo', nhan: 'Lý do', kieu: 'chon', ds: LY_DO_TRA, gt: LY_DO_TRA[0] },
+    { k: 'tot', nhan: 'Hàng còn bán được (cộng lại vào kho)', kieu: 'hop', gt: false },
+    { k: 'doiLai', nhan: 'Khách muốn đổi lấy hàng MỚI sau (không trừ tiền, đơn sau nhắc)', kieu: 'hop', gt: false },
+  ], 'Tiếp');
+  if (!v || !(v.sl > 0)) return;
+  const [qc, qd] = [v.qc.split('|')[0], Number(v.qc.split('|')[1]) || 1];
+  const khId = S.gio.kh ? S.gio.kh.id : 'KHLE';
+  // Giá lần gần nhất khách mua + số còn được trả (máy chủ). Mất mạng → giá bảng, chưa kiểm được.
+  let g = null; try { g = await cho('Đang tìm giá khách mua…', () => rpc('gia_tra_hang', { p_kh: khId, p_hh: h.id, p_qc: qc })); } catch (e) { /* mất mạng */ }
+  const giaBang = (h.gia.find(x => x.qc === qc) || {}).g;
+  const goi = g && g.gia != null ? Number(g.gia) : giaBang || 0;
+  const chuaMua = g && Number(g.con_duoc_tra) < v.sl * qd;
+  const ghiChu = !g ? 'Không kiểm tra được lịch sử mua (mất mạng) – giá theo bảng giá.'
+    : (g.mua_luc ? 'Giá lần khách mua gần nhất (' + ngayNgan(g.mua_luc) + ').' : 'Khách chưa mua món này với quy cách này – giá bán hiện tại.')
+      + (khId === 'KHLE' ? '<br><b class="no">Khách lẻ: KHÔNG trừ tiền – chờ chủ kiểm tra.</b>'
+        : chuaMua ? `<br><b class="no">⚠ Khách ${Number(g.con_duoc_tra) > 0 ? 'chỉ còn trả được ' + so(Number(g.con_duoc_tra) / qd) + ' ' + esc(qc) : 'CHƯA TỪNG mua món này'} – phần vượt KHÔNG trừ tiền, chờ chủ kiểm tra để báo lại khách.</b>` : '');
+  const v2 = await hoi('Giá trả: ' + h.ten, [{ k: 'gia', nhan: 'Giá 1 ' + qc, kieu: 'tien', gt: goi }], 'Thêm vào đơn', ghiChu);
+  if (!v2) return;
+  S.gio.tra.push({ id: h.id, ten: h.ten, qc, qd, sl: v.sl, gia: v2.gia || 0, lyDo: v.lyDo, tot: !!v.tot, doiLai: !!v.doiLai,
+    kh: khId, conDuoc: g ? Number(g.con_duoc_tra) : null, giaGoi: goi });
+  capNhatGio();
+};
+HD.moTraHang = async () => { moBang('Đơn hàng', veGio); await HD.themTraHang(); };
+HD.moDoiThuong = async () => { moBang('Đơn hàng', veGio); await HD.themThuong(); };
+HD.xoaTra = el => { S.gio.tra.splice(el.dataset.i, 1); capNhatGio(); };
+// Đổi khách sau khi đã thêm dòng trả → kiểm lại số còn được trả theo khách mới
+async function kiemLaiTra() {
+  const khId = S.gio.kh ? S.gio.kh.id : 'KHLE'; let doi = false;
+  for (const x of S.gio.tra) if (x.kh !== khId) {
+    try { const g = await rpc('gia_tra_hang', { p_kh: khId, p_hh: x.id, p_qc: x.qc }); x.conDuoc = Number(g.con_duoc_tra); x.kh = khId; doi = true;
+      // giá chưa sửa tay → đổi theo lần mua gần nhất của khách mới
+      if (x.gia === x.giaGoi && g.gia != null) x.gia = x.giaGoi = Number(g.gia); } catch (e) { x.conDuoc = null; x.kh = khId; doi = true; }
+  }
+  if (doi) capNhatGio();
+}
+
+// ── Đổi thưởng nắp ──
+async function taiCT(lai) {
+  if (!S.ctThuong || lai) S.ctThuong = await api('v_nap_dang_giu?select=*&order=ten');
+  return S.ctThuong;
+}
+HD.themThuong = async () => {
+  let ds; try { ds = (await cho('…', () => taiCT())).filter(c => c.dang_chay); } catch (e) { return thongBao(e.message, 'loi'); }
+  if (!ds.length) return thongBao(laChu() ? 'Chưa có chương trình thưởng – vào Thêm → Chương trình thưởng nắp để khai báo' : 'Chưa có chương trình thưởng – nhờ chủ khai báo', 'loi');
+  let c = ds[0];
+  if (ds.length > 1) { const v = await hoi('Chương trình', [{ k: 'ct', nhan: 'Nắp của chương trình nào?', kieu: 'chon', ds: ds.map(x => [x.id, x.ten]), gt: ds[0].id }], 'Tiếp');
+    if (!v) return; c = ds.find(x => x.id === v.ct); }
+  const muc = c.muc || [];
+  const v = await hoi('🎁 ' + c.ten, [
+    { k: 'muc', nhan: 'Mức trúng', kieu: 'chon', ds: muc.map(m => [m.ten, m.ten + (m.loai === 'tien' ? ' (' + tien(m.gia_tri) + ')' : ' (' + so(m.so_luong) + ' ' + (((timHang(m.hang_hoa_id) || {}).ten) || '') + ')')]), gt: (muc[0] || {}).ten },
+    { k: 'nap', nhan: 'Số nắp', kieu: 'so', gt: 1 },
+    { k: 'chuaTra', nhan: 'CHƯA trả khách ngay (ghi nợ thưởng, đơn sau nhắc)', kieu: 'hop', gt: false },
+  ], 'Thêm vào đơn');
+  if (!v || !(v.nap > 0)) return;
+  const m = muc.find(x => x.ten === v.muc); if (!m) return;
+  S.gio.thg.push({ ct: c.id, ctTen: c.ten, muc: m.ten, loai: m.loai, giaTri: Number(m.gia_tri) || 0, hhId: m.hang_hoa_id || null,
+    slHang: Number(m.so_luong) || 0, nap: Math.round(v.nap), chuaTra: !!v.chuaTra });
+  capNhatGio();
+};
+HD.xoaThg = el => { S.gio.thg.splice(el.dataset.i, 1); capNhatGio(); };
+
+// ── Thêm → Chương trình thưởng nắp (chủ khai báo, đổi nắp với NCC) ──
+HD.ctDs = el => chay(el, '…', async () => { await taiCT(true); S.nccDsCT = S.nccDsCT || await api('nha_cung_cap?select=id,ten&order=ten'); moBang('Chương trình thưởng nắp', veCTDs); });
+function veCTDs() {
+  return `<p class="mo">Mỗi chương trình (VD "Tiger Tết", "Sting trúng lon") có các mức trúng. Nhân viên chọn mức × số nắp khi lên đơn.
+    Nắp thu về được đếm ở đây để mang đổi với NCC.</p>
+    <button class="nut chinh" style="width:100%" data-a="ctSua">＋ Thêm chương trình</button>
+    <div class="the ds" style="margin-top:10px">${S.ctThuong.map(c => `<div class="muc"><div class="dong"><div class="gian"><b>${esc(c.ten)}</b>
+        ${c.dang_chay ? '' : ' <span class="the-nhan">đã dừng</span>'}<br>
+        <span class="mo">${esc(((S.nccDsCT || []).find(n => n.id === c.ncc_id) || {}).ten || 'chưa gắn NCC')} · ${(c.muc || []).map(m => esc(m.ten)).join(', ')}</span><br>
+        Đang giữ <b>${c.so_nap}</b> nắp${Number(c.tong_tien) ? ' = <b>' + tien(c.tong_tien) + '</b>' : ''}${Number(c.tong_hang) ? ' + <b>' + so(c.tong_hang) + '</b> lon/chai' : ''}</div></div>
+      <div class="hang-nut" style="margin-top:6px"><button class="nut nho" data-a="ctSua" data-id="${esc(c.id)}">✎ Sửa</button>
+        ${c.so_nap > 0 ? `<button class="nut nho chinh" data-a="ctDoiNap" data-id="${esc(c.id)}">⇄ Đã đổi nắp với NCC</button>` : ''}</div></div>`).join('') || '<div class="trong">Chưa có chương trình nào</div>'}</div>`;
+}
+// Mức thưởng gõ 1 dòng: tiền "10k, 20k, 50k, 1tr" · lon "1, 2, 6" (số lon mỗi nắp)
+HD.ctSua = async el => {
+  const c = S.ctThuong.find(x => x.id === el.dataset.id) || { muc: [], dang_chay: true };
+  const tien0 = c.muc.filter(m => m.loai === 'tien').map(m => m.ten).join(', ');
+  const hang0 = c.muc.filter(m => m.loai === 'hang');
+  const v = await hoi(c.id ? 'Sửa ' + c.ten : 'Chương trình mới', [
+    { k: 'ten', nhan: 'Tên chương trình', gt: c.ten, goiY: 'VD: Tiger Tết 2027' },
+    { k: 'ncc', nhan: 'NCC nhận đổi nắp', kieu: 'chon', ds: [['', '— chưa chọn —'], ...(S.nccDsCT || []).map(n => [n.id, n.ten])], gt: c.ncc_id || '' },
+    { k: 'tien', nhan: 'Mức trúng TIỀN (cách nhau dấu phẩy)', gt: tien0, goiY: 'VD: 10k, 20k, 50k, 100k, 1tr' },
+    { k: 'lon', nhan: 'Mức trúng LON/CHAI – số lon mỗi nắp (cách nhau dấu phẩy)', gt: hang0.map(m => so(m.so_luong)).join(', '), goiY: 'VD: 1, 2, 6' },
+    { k: 'chay', nhan: 'Đang chạy (hiện khi lên đơn)', kieu: 'hop', gt: c.dang_chay },
+  ], 'Tiếp');
+  if (!v) return;
+  const muc = [];
+  for (const s of (v.tien || '').split(/[,;\n]+/).map(x => x.trim()).filter(Boolean)) {
+    const n = docTien(s); if (!(n > 0)) return thongBao('Không hiểu mức tiền "' + s + '"', 'loi');
+    muc.push({ ten: s.replace(/\s+/g, ''), loai: 'tien', gia_tri: n });
+  }
+  const lon = (v.lon || '').split(/[,;\n]+/).map(x => docSo(x.trim())).filter(n => n > 0);
+  if (lon.length) {
+    // Chọn món thưởng (lon/chai) – giữ món cũ nếu đang sửa
+    let hhId = (hang0[0] || {}).hang_hoa_id;
+    if (!hhId || !await xacNhan('Món thưởng vẫn là ' + ((timHang(hhId) || {}).ten || hhId) + '?', 'Giữ món này')) hhId = await timChonMon('Món đưa khách khi trúng lon');
+    if (!hhId) return;
+    const dv = (timHang(hhId) || {}).dv || 'lon';
+    lon.forEach(n => muc.push({ ten: so(n) + ' ' + dv, loai: 'hang', hang_hoa_id: hhId, so_luong: n }));
+  }
+  if (!muc.length) return thongBao('Chưa có mức trúng nào', 'loi');
+  await cho('Đang lưu…', () => rpc('luu_chuong_trinh', { p: { id: c.id, ten: v.ten, ncc_id: v.ncc, muc, dang_chay: v.chay } }));
+  thongBao('Đã lưu chương trình ' + v.ten, 'tot'); await taiCT(true); veBang();
+};
+HD.ctDoiNap = async el => {
+  const c = S.ctThuong.find(x => x.id === el.dataset.id); if (!c) return;
+  const v = await hoi('Đổi nắp – ' + c.ten, [{ k: 'cach', nhan: 'NCC trả phần tiền bằng', kieu: 'chon',
+    ds: [['tru_no', 'Trừ vào nợ NCC'], ['tien_mat', 'Đưa tiền mặt (cộng vào két)']], gt: c.ncc_id ? 'tru_no' : 'tien_mat' }], 'Đã đổi',
+    `Mang <b>${c.so_nap}</b> nắp đi đổi: ${Number(c.tong_tien) ? tien(c.tong_tien) : ''}${Number(c.tong_hang) ? ' + ' + so(c.tong_hang) + ' lon/chai (cộng lại vào kho)' : ''}.`);
+  if (!v) return;
+  const r = await cho('Đang ghi…', () => rpc('doi_nap_ncc', { p: { chuong_trinh_id: c.id, cach: v.cach } }));
+  thongBao('Đã đổi ' + r.so_nap + ' nắp' + (r.tong_tien ? ' · ' + tien(r.tong_tien) + (r.cach === 'tru_no' ? ' trừ nợ NCC' : ' tiền mặt') : ''), 'tot');
+  await taiCT(true); veBang();
+};
+
+// ── Thêm → Việc còn treo với khách (tất cả khách) ──
+async function taiViecTreo() { S.vt = await api('viec_treo_khach?select=*,khach_hang(ten)&trang_thai=eq.mo&order=tao_luc'); }
+HD.vtDs = el => chay(el, '…', async () => { await taiViecTreo(); moBang('Việc còn treo với khách', veViecTreo, () => { S.vt = null; }); });
+function veViecTreo() {
+  const ds = S.vt || [];
+  const nhom = [['cho_kiem_tra', '⏳ Hàng trả chờ chủ kiểm tra'], ['no_thuong_tien', '🎁 Nợ khách tiền thưởng'], ['no_thuong_hang', '🎁 Nợ khách lon/chai thưởng'],
+    ['kh_lay_lai', '↩ Khách chờ lấy lại hàng'], ['no_tien', '💵 Nợ khách tiền (trả hàng đã nhận)']];
+  return `<p class="mo">Các việc này tự hiện nhắc khi lên đơn cho đúng khách đó. Chỉ chủ bấm xác nhận.</p>
+    ${nhom.map(([l, ten]) => { const d = ds.filter(v => v.loai === l); return d.length ? `<h3>${ten} (${d.length})</h3><div class="the ds">${d.map(v => `<div class="muc">
+      <b>${esc((v.khach_hang || {}).ten || v.khach_hang_id)}</b> <span class="mo">· ${ngayNgan(v.tao_luc)} · ${esc(v.nguoi_tao || '')}</span><br>${esc(v.noi_dung)}
+      <div class="hang-nut" style="margin-top:6px">${nutTreo(v, 'ds')}${laChu() ? `<button class="nut nho" data-a="xuLyTreo" data-id="${v.id}" data-kq="dong">Bỏ</button>` : ''}</div></div>`).join('')}</div>` : ''; }).join('')
+    || '<div class="trong">Không còn việc nào treo ✓</div>'}`;
+}
 
 // ── 6b. DÁN TIN NHẮN / ẢNH ZALO → AI LÊN ĐƠN ────────────────────────
 // Luồng: dán tin và/hoặc chọn ảnh (chụp màn hình Zalo, giấy ghi đơn, hình sản phẩm khách gửi – tối đa 4)
@@ -1434,7 +1706,9 @@ async function layDon(id) {
     api('v_don_hang?select=*&id=eq.' + id),
     api('don_hang_ct?select=*&don_hang_id=eq.' + id + '&order=stt'),
     api('thanh_toan?select=*&don_hang_id=eq.' + id + '&order=ngay'),
-  ]);
+    api('tra_hang?select=*&don_hang_id=eq.' + id + '&order=id').catch(() => []),
+    api('doi_thuong?select=*,chuong_trinh_thuong(ten)&don_hang_id=eq.' + id + '&order=id').catch(() => []),
+  ]).then(([d, ct, tt, th, dt]) => { if (d[0]) { d[0]._tra = th; d[0]._thg = dt; } return [d, ct, tt]; });
   if (!d[0]) throw new Error('Không tìm thấy đơn ' + id);
   // Nợ cũ = các đơn KHÁC của khách này còn nợ (tính tại lúc xem)
   const khac = d[0].khach_hang_id === 'KHLE' ? [] :
@@ -1469,7 +1743,10 @@ function veChiTietDon(x) {
         <span class="mo">${so(c.so_luong)} ${esc(c.quy_cach)} × ${so(c.don_gia - c.giam_gia)}</span></div><span class="tien">${so(c.thanh_tien)}</span></div>`).join('')}
       ${Number(d.chiet_khau) ? `<div class="tong-dong"><span>Tiền hàng</span><span class="tien">${tien(d.tong_tien_hang)}</span></div>
         <div class="tong-dong"><span>Chiết khấu</span><span class="tien">−${tien(d.chiet_khau)}</span></div>` : ''}
-      <div class="tong-dong lon"><span>Tổng cộng</span><span class="tien">${tien(d.tong_cong)}</span></div>
+      ${veTruDon(d)}
+      <div class="tong-dong lon"><span>${Number(d.tien_tra_lai) || Number(d.tien_can_tru) ? 'Khách trả' : 'Tổng cộng'}</span><span class="tien">${tien(d.tong_cong)}</span></div>
+      ${Number(d.tien_can_tru) ? `<div class="tong-dong"><span>↳ Đã trừ vào nợ cũ</span><span class="tien">${tien(d.tien_can_tru)}</span></div>` : ''}
+      ${Number(d.tien_tra_lai) ? `<div class="tong-dong" style="font-weight:700"><span class="no">↳ Đã trả lại khách tiền mặt</span><span class="no tien">${tien(d.tien_tra_lai)}</span></div>` : ''}
       ${tt.map(p => `<div class="tong-dong mo"><span>✓ ${esc(p.hinh_thuc)} ${ngayGio(p.ngay)}${p.nguoi_thu ? ' · ' + esc(p.nguoi_thu) : ''}
           ${laChu() ? `<button class="gia-sua" style="color:var(--do)" data-a="huyTT" data-id="${esc(p.id)}">huỷ</button>` : ''}</span><span class="tien">${tien(p.so_tien)}</span></div>
         ${p.hinh_thuc === 'Chuyển khoản' || (p.anh && p.anh.length) ? `<div class="anh-ds" style="margin:0 0 6px">${veAnh(p.anh).replace(/^<div class="anh-ds">|<\/div>$/g, '')}
@@ -1495,6 +1772,22 @@ function veChiTietDon(x) {
         `<button class="chip${k === kieuTT() ? '' : ' phu'}" data-a="chonTT" data-k="${k}">${k === kieuTT() ? '✓ ' : ''}${KIEU_TT[k]}</button>`).join('')}</div>` : ''}`;
 }
 HD.chonTT = el => { luu('bh_in_tt', el.dataset.k); veBang(); };
+// TH01: các dòng trả hàng / đổi thưởng của 1 đơn (dùng cho màn hình, copy, ảnh, in)
+const TT_TRA = { da_tru: '', cho_kiem_tra: '⏳ chờ chủ kiểm tra – chưa trừ', khong_nhan: '✗ không nhận', da_nhan_sau: '✓ chủ đã nhận (trừ sau)', doi_lay_lai: 'đổi hàng mới sau', huy: 'huỷ' };
+function dongTruDon(d) {
+  const r = [];
+  (d._tra || []).forEach(x => r.push({ ten: '↩ Trả: ' + x.ten_hang, ct: so(x.so_luong) + ' ' + x.quy_cach + ' × ' + so(x.don_gia) + (x.hang_tot ? '' : ' (hư)') + (TT_TRA[x.trang_thai] ? ' · ' + TT_TRA[x.trang_thai] : ''),
+    tien: x.trang_thai === 'da_tru' ? -Number(x.thanh_tien) : 0 }));
+  (d._thg || []).forEach(x => r.push({ ten: '🎁 ' + ((x.chuong_trinh_thuong || {}).ten || 'Đổi thưởng'), ct: x.so_nap + ' nắp × ' + x.muc_ten + (x.da_tra_khach ? '' : ' · chưa trả khách'),
+    tien: x.loai === 'tien' && x.da_tra_khach && Number(d.tru_doi_thuong) ? -x.so_nap * Number(x.gia_tri) : 0 }));
+  if (Number(d.tru_khac)) r.push({ ten: '⏳ Trừ khoản nợ khách từ trước', ct: '', tien: -Number(d.tru_khac) });
+  return r;
+}
+function veTruDon(d) {
+  const r = dongTruDon(d); if (!r.length) return '';
+  return `<div style="border-top:1px dashed var(--vien);margin-top:6px;padding-top:4px">${r.map(x => `<div class="hd-dong"><div class="gian">${esc(x.ten)}<br><span class="mo">${esc(x.ct)}</span></div>
+    <span class="tien">${x.tien ? '−' + so(-x.tien) : '0'}</span></div>`).join('')}</div>`;
+}
 const donDangMo = () => S.bangs[S.bangs.length - 1].x;
 HD.daGiao = async el => {
   const { d } = donDangMo(), thu = el.dataset.thu === '1';
@@ -1561,8 +1854,12 @@ function chuHoaDon(x) {
   const l = [`🧾 ${shop.ten || 'HOÁ ĐƠN'} – ${d.id}`, ngayDayDu(d.ngay), 'Khách: ' + d.ten_khach, ''];
   ct.forEach((c, i) => l.push(`${i + 1}. ${c.ten_hang}\n   ${so(c.so_luong)} ${c.quy_cach} x ${so(c.don_gia - c.giam_gia)} = ${so(c.thanh_tien)}`));
   l.push('');
-  if (Number(d.chiet_khau)) l.push('Tiền hàng: ' + tien(d.tong_tien_hang), 'Chiết khấu: -' + tien(d.chiet_khau));
+  if (Number(d.chiet_khau) || dongTruDon(d).length) l.push('Tiền hàng: ' + tien(d.tong_tien_hang));
+  if (Number(d.chiet_khau)) l.push('Chiết khấu: -' + tien(d.chiet_khau));
+  dongTruDon(d).forEach(x => l.push(x.ten + (x.ct ? ' (' + x.ct + ')' : '') + ': ' + (x.tien ? '-' + so(-x.tien) : '0')));
   l.push('TỔNG CỘNG: ' + tien(d.tong_cong));
+  if (Number(d.tien_can_tru)) l.push('Đã trừ vào nợ cũ: ' + tien(d.tien_can_tru));
+  if (Number(d.tien_tra_lai)) l.push('Đã trả lại khách: ' + tien(d.tien_tra_lai));
   if (Number(d.da_tra) > 0) l.push('Đã trả: ' + tien(d.da_tra));
   if (Number(d.con_no) > 0 && d.trang_thai !== 'huy') l.push('Còn lại: ' + tien(d.con_no));
   const nc = noCuIn(x); if (nc) l.push('Nợ cũ: ' + tien(nc), 'TỔNG PHẢI TRẢ: ' + tien(nc + Number(d.con_no)));
@@ -1598,8 +1895,14 @@ async function veAnhHoaDon(x, khongQR) {
     hai('    ' + so(r.so_luong) + ' ' + r.quy_cach + ' × ' + so(r.don_gia - r.giam_gia), so(r.thanh_tien), F(21), 30);
   });
   ke();
-  if (Number(d.chiet_khau)) { hai('Tiền hàng', tien(d.tong_tien_hang), F(21), 30); hai('Chiết khấu', '−' + tien(d.chiet_khau), F(21), 30); }
+  const truD = dongTruDon(d);
+  if (Number(d.chiet_khau) || truD.length) hai('Tiền hàng', tien(d.tong_tien_hang), F(21), 30);
+  if (Number(d.chiet_khau)) hai('Chiết khấu', '−' + tien(d.chiet_khau), F(21), 30);
+  truD.forEach(x => { chia(x.ten, W - 2 * P - 140, F(20)).forEach((s, i, a) => i < a.length - 1 ? viet(s, F(20), 'left', 26) : hai(s, x.tien ? '−' + so(-x.tien) : '0', F(20), 26));
+    if (x.ct) viet('    ' + x.ct, F(17), 'left', 24, '#444'); });
   hai('TỔNG CỘNG', tien(d.tong_cong), F(27, 1), 40);
+  if (Number(d.tien_can_tru)) hai('Đã trừ vào nợ cũ', tien(d.tien_can_tru), F(21), 30);
+  if (Number(d.tien_tra_lai)) hai('Đã trả lại khách', tien(d.tien_tra_lai), F(21, 1), 30);
   if (Number(d.da_tra) > 0) hai('Đã trả', tien(d.da_tra), F(21), 30);
   const no = d.trang_thai === 'huy' ? 0 : Number(d.con_no);
   if (no > 0) hai('CÒN LẠI', tien(no), F(23, 1), 34);
@@ -1647,8 +1950,12 @@ HD.inHD = async el => {
   $('#vung-in').innerHTML = `<div class="giua"><b style="font-size:15px">${esc(shop.ten || '')}</b><br>${esc(shop.dia_chi || '')}${shop.sdt ? '<br>ĐT: ' + esc(shop.sdt) : ''}
     <br><b>HOÁ ĐƠN ${esc(d.id)}</b><br>${ngayDayDu(d.ngay)}</div><hr>Khách: <b>${esc(d.ten_khach)}</b><hr>
     <table>${ct.map(c => `<tr><td colspan="2">${esc(c.ten_hang)}</td></tr><tr><td>&nbsp;${so(c.so_luong)} ${esc(c.quy_cach)} × ${so(c.don_gia - c.giam_gia)}</td><td class="phai">${so(c.thanh_tien)}</td></tr>`).join('')}</table><hr>
-    <table>${Number(d.chiet_khau) ? `<tr><td>Tiền hàng</td><td class="phai">${so(d.tong_tien_hang)}</td></tr><tr><td>Chiết khấu</td><td class="phai">-${so(d.chiet_khau)}</td></tr>` : ''}
+    <table>${Number(d.chiet_khau) || dongTruDon(d).length ? `<tr><td>Tiền hàng</td><td class="phai">${so(d.tong_tien_hang)}</td></tr>` : ''}
+    ${Number(d.chiet_khau) ? `<tr><td>Chiết khấu</td><td class="phai">-${so(d.chiet_khau)}</td></tr>` : ''}
+    ${dongTruDon(d).map(x => `<tr><td>${esc(x.ten)}${x.ct ? '<br>&nbsp;' + esc(x.ct) : ''}</td><td class="phai">${x.tien ? '-' + so(-x.tien) : '0'}</td></tr>`).join('')}
     <tr><td><b>TỔNG CỘNG</b></td><td class="phai"><b>${tien(d.tong_cong)}</b></td></tr>
+    ${Number(d.tien_can_tru) ? `<tr><td>Đã trừ vào nợ cũ</td><td class="phai">${tien(d.tien_can_tru)}</td></tr>` : ''}
+    ${Number(d.tien_tra_lai) ? `<tr><td><b>Đã trả lại khách</b></td><td class="phai"><b>${tien(d.tien_tra_lai)}</b></td></tr>` : ''}
     ${Number(d.da_tra) > 0 ? `<tr><td>Đã trả</td><td class="phai">${tien(d.da_tra)}</td></tr>` : ''}
     ${no > 0 ? `<tr><td><b>Còn lại</b></td><td class="phai"><b>${tien(no)}</b></td></tr>` : ''}
     ${noCuIn(x) ? `<tr><td>Nợ cũ</td><td class="phai">${tien(noCuIn(x))}</td></tr><tr><td><b>TỔNG PHẢI TRẢ</b></td><td class="phai"><b>${tien(noCuIn(x) + no)}</b></td></tr>` : ''}</table>
@@ -1662,12 +1969,13 @@ HD.inHD = async el => {
 // ── 9. CÔNG NỢ & KHÁCH ───────────────────────────────────────────────
 HD.moKhach = el => moKhach(el.dataset.id);
 async function layKhach(id) {
-  const [k, no, gan] = await Promise.all([
+  const [k, no, gan, treo] = await Promise.all([
     api('khach_hang?select=*&id=eq.' + id),
     api('v_don_hang?' + COT_DON + '&khach_hang_id=eq.' + id + '&con_no=gt.0&order=ngay'),
     api('v_don_hang?' + COT_DON + '&khach_hang_id=eq.' + id + '&order=ngay.desc&limit=15'),
+    taiTreo(id).catch(() => []),
   ]);
-  return { k: k[0], no, gan, tongNo: no.reduce((s, d) => s + Number(d.con_no), 0) };
+  return { k: k[0], no, gan, treo, tongNo: no.reduce((s, d) => s + Number(d.con_no), 0) };
 }
 async function moKhach(id) {
   const x = await layKhach(id);
@@ -1694,6 +2002,9 @@ function veChiTietKhach(x) {
         ${!laLe ? `<button class="nut" data-a="lenDonChoKhach">🛒 Lên đơn</button>` : ''}
         <button class="nut" data-a="suaKhach">✎ Sửa</button></div>
       ${qr ? `<img class="qr" src="${qr}" alt="QR trả nợ"><p class="mo" style="text-align:center;margin:0">Nội dung CK: <b>NO ${esc(k.id)}</b></p>` : ''}</div>
+    ${(x.treo || []).length ? `<h3>⚠ Còn treo với khách (${x.treo.length})</h3><div class="the ds">${x.treo.map(v => `<div class="muc">
+      <span class="the-nhan vang">${TREO_NHAN[v.loai] || ''}</span> ${esc(v.noi_dung)} <span class="mo">· ${ngayNgan(v.tao_luc)}</span>
+      <div class="hang-nut" style="margin-top:6px">${nutTreo(v, 'khach')}</div></div>`).join('')}</div>` : ''}
     ${no.length ? `<h3>Đơn còn nợ (cũ nhất trước)</h3><div class="the ds">${no.map(veDongDon).join('')}</div>` : ''}
     <h3>Đơn gần đây</h3><div class="the ds">${gan.map(veDongDon).join('') || '<div class="trong">Chưa có đơn</div>'}</div>`;
 }
@@ -1721,9 +2032,9 @@ function tinNhacNo(k, no) {
 HD.nhacNo = async () => { const { k, no } = khachDangMo(); await copy(tinNhacNo(k, no)); rpc('da_nhac_no', { p_kh: k.id }).catch(() => {}); };
 HD.lenDonChoKhach = () => {
   const { k } = khachDangMo();
-  if (S.gio.dong.length && !(S.gio.kh && S.gio.kh.id === k.id) && !moGioMoi()) return;
+  if (gioCo() && !(S.gio.kh && S.gio.kh.id === k.id) && !moGioMoi()) return;
   S.gio.kh = { id: k.id, ten: k.ten, sdt: k.sdt }; S.gio.khMoi = null; luuGio();
-  S.bangs = []; veBang(); S.tab = 'ban'; veKhung();
+  S.bangs = []; veBang(); S.tab = 'ban'; veKhung(); baoTreoKhach(k.id);
 };
 async function formKhach(k) {
   k = k || {};
@@ -1825,6 +2136,7 @@ function veThem() {
       <div class="muc dong" data-a="baoCao"><span class="gian">📊 <b>Báo cáo doanh thu</b></span>›</div>
       <div class="muc dong" data-a="ktMo"><span class="gian">🧾 <b>Hoá đơn cho kế toán</b><br><span class="mo">Xuất Excel + PDF hoá đơn bán theo tháng</span></span>›</div>
       <div class="muc dong" data-a="chotSo"><span class="gian">🧮 <b>Chốt sổ cuối ngày</b><br><span class="mo">Đếm két, đối chiếu tiền mặt</span></span>›</div>
+      <div class="muc dong" data-a="ctDs"><span class="gian">🎁 <b>Chương trình thưởng nắp</b><br><span class="mo">Mức trúng · nắp đang giữ · đổi nắp với NCC</span></span>›</div>
       <div class="muc dong" data-a="hangMoi"><span class="gian">📦 <b>Thêm mặt hàng mới</b><br><span class="mo">Sửa giá: tìm hàng ở tab Bán → bấm ✎</span></span>›</div>
       <div class="muc dong" data-a="hangChuaGia"><span class="gian">🏷 <b>Điền giá nhanh</b><br><span class="mo">${S.hang.filter(h => !h.gia.length).length} món chưa có giá · có AI đọc sổ giá</span></span>›</div>
       <div class="muc dong" data-a="saoLuu"><span class="gian">💾 <b>Sao lưu dữ liệu</b><br><span class="mo">Tải Excel · tự sao lưu hằng tuần vào Drive</span></span>›</div>
@@ -1834,6 +2146,7 @@ function veThem() {
     </div>` : ''}
     <div class="the ds">
       <div class="muc dong" data-a="nccDs"><span class="gian">🚚 <b>Nhà cung cấp</b><br><span class="mo">SĐT, mặt hàng, toa hàng · 🤖 AI đọc toa → giá vốn</span></span>›</div>
+      <div class="muc dong" data-a="vtDs"><span class="gian">⏳ <b>Việc còn treo với khách</b><br><span class="mo">Hàng trả chờ kiểm tra · nợ thưởng · khách chờ lấy lại</span></span>›</div>
       <div class="muc dong" data-a="kkMo"><span class="gian">📋 <b>Kiểm kho</b><br><span class="mo">${S.hang.filter(h => h.ton != null).length} món chủ lực · đếm nhanh, báo lệch</span></span>›</div>
       <div class="muc dong" data-a="taiLaiTatCa"><span class="gian">⟳ <b>Tải lại dữ liệu</b><br><span class="mo">${S.hang.length} hàng · ${S.khach.length} khách</span></span></div>
       <div class="muc dong" data-a="doiMatKhau"><span class="gian">🔑 <b>Đổi mật khẩu</b></span>›</div>
@@ -1982,14 +2295,19 @@ function veChotSo() {
     <div class="the">
       <div class="tong-dong"><span>Quỹ đầu ngày${lan1 ? ' <span class="the-nhan vang">lần đầu – tự gõ</span>' : ' <span class="mo">(để lại hôm trước)</span>'}</span>
         <span style="width:130px"><input class="o" style="padding:6px 10px;text-align:right" inputmode="decimal" data-i="csQuy" value="${g.quy == null ? '' : so(g.quy)}" placeholder="0"></span></div>
-      <div class="tong-dong"><span>+ Khách trả tiền mặt</span><span class="tien">${tien(t.thu_tm)}</span></div>
-      <div class="tong-dong"><span>− Trả NCC tiền mặt</span><span class="tien">${tien(t.chi_tm)}</span></div>
+      <div class="tong-dong"><span>+ Khách trả tiền mặt</span><span class="tien">${tien(t.thu_khach_tm != null ? t.thu_khach_tm : t.thu_tm)}</span></div>
+      ${Number(t.thu_nap_ncc) ? `<div class="tong-dong"><span>+ NCC đổi nắp trả tiền mặt</span><span class="tien">${tien(t.thu_nap_ncc)}</span></div>` : ''}
+      <div class="tong-dong"><span>− Trả NCC tiền mặt</span><span class="tien">${tien(t.tra_ncc_tm != null ? t.tra_ncc_tm : t.chi_tm)}</span></div>
+      ${Number(t.tra_lai_khach) ? `<div class="tong-dong"><span>− Trả lại khách tiền mặt (trả hàng / thưởng)</span><span class="tien">${tien(t.tra_lai_khach)}</span></div>` : ''}
       <div class="tong-dong lon"><span>Phải có trong két</span><span class="tien" id="cs-phai">${tien(phaiCo())}</span></div>
-      <p class="no" id="cs-am" style="margin:2px 0 0;${phaiCo() < 0 ? '' : 'display:none'}">⚠ Số âm: tiền mặt trả NCC nhiều hơn quỹ đầu ngày + tiền khách trả. Kiểm tra lại quỹ đầu ngày, hoặc có khoản trả NCC lấy từ nguồn khác (ghi chú lại).</p>
+      <p class="no" id="cs-am" style="margin:2px 0 0;${phaiCo() < 0 ? '' : 'display:none'}">⚠ Số âm: tiền mặt chi ra (trả NCC, trả lại khách) nhiều hơn quỹ đầu ngày + tiền thu vào. Kiểm tra lại quỹ đầu ngày, hoặc có khoản trả NCC lấy từ nguồn khác (ghi chú lại).</p>
       <div class="tong-dong mo" style="border-top:1px dashed var(--vien);margin-top:6px;padding-top:8px"><span>Tham khảo: khách chuyển khoản</span><span class="tien">${tien(t.thu_ck)}</span></div>
       <div class="tong-dong mo"><span>Bán ghi nợ</span><span class="tien">${tien(t.ban_no)}</span></div>
       <div class="tong-dong mo"><span>Số đơn trong ngày</span><span>${t.so_don}</span></div>
-      ${t.cho_giao ? `<div class="tong-dong"><span class="no">🚚 Đơn chưa giao (mọi ngày)</span><span class="no">${t.cho_giao}</span></div>` : ''}</div>
+      ${Number(t.tru_tra_hang) ? `<div class="tong-dong mo"><span>Hàng khách trả (đã trừ vào đơn)</span><span class="tien">${tien(t.tru_tra_hang)}</span></div>` : ''}
+      ${Number(t.tru_doi_thuong) ? `<div class="tong-dong mo"><span>Đổi thưởng nắp (trừ vào đơn)</span><span class="tien">${tien(t.tru_doi_thuong)}</span></div>` : ''}
+      ${t.cho_giao ? `<div class="tong-dong"><span class="no">🚚 Đơn chưa giao (mọi ngày)</span><span class="no">${t.cho_giao}</span></div>` : ''}
+      ${t.cho_kiem_tra ? `<div class="tong-dong"><span class="no">⏳ Hàng trả chờ chủ kiểm tra</span><button class="gia-sua" data-a="vtDs">${t.cho_kiem_tra} việc ›</button></div>` : ''}</div>
     <label class="nhan">Tiền mặt đếm được trong két</label>
     <input class="o" inputmode="decimal" data-i="csDem" value="${esc(g.dem)}" placeholder="VD 2350k hoặc 2.350.000">
     <div class="goi-y" id="cs-lech">${g.dem ? veLech(docTien(g.dem) - phaiCo()) : 'Gõ số tiền vừa đếm để xem lệch'}</div>
@@ -2152,6 +2470,9 @@ function veBaoCao(r, ky, tu, den) {
     <div class="the"><span class="mo">Doanh thu · ${t.so_don} đơn</span><div class="so-lon tien">${tien(t.doanh_thu)}</div>
       <div class="tong-dong"><span>Đã thu trong kỳ (gồm thu nợ cũ)</span><b class="tien">${tien(t.da_thu)}</b></div>
       <div class="tong-dong"><span>Bán ghi nợ</span><b class="tien no">${tien(t.ghi_no)}</b></div>
+      ${Number(t.tra_hang) ? `<div class="tong-dong"><span>Hàng khách trả (đã trừ khỏi doanh thu)</span><b class="tien">${tien(t.tra_hang)}</b></div>` : ''}
+      ${Number(t.doi_thuong) ? `<div class="tong-dong"><span>Đổi thưởng nắp (NCC trả lại, không trừ doanh thu)</span><b class="tien">${tien(t.doi_thuong)}</b></div>` : ''}
+      ${Number(t.tra_lai_khach) ? `<div class="tong-dong"><span>Tiền mặt trả lại khách</span><b class="tien">${tien(t.tra_lai_khach)}</b></div>` : ''}
       <div class="tong-dong"><span>Lãi gộp</span><b class="tien">${t.ty_le_co_gia_von > 0 ? tien(t.lai_gop) : 'chưa tính được'}</b></div>
       ${t.ty_le_co_gia_von < 100 ? `<p class="mo" style="margin:4px 0 0">⚠ Lãi chỉ đúng khi có giá vốn. Hiện ${t.ty_le_co_gia_von}% doanh thu có giá vốn – nhập giá vốn ở ✎ sửa hàng.</p>` : ''}</div>
     ${Object.keys(r.theo_hinh_thuc).length ? `<div class="the"><h3>Theo hình thức</h3>${Object.entries(r.theo_hinh_thuc).map(([k, v]) => `<div class="tong-dong"><span>${esc(k)}</span><span class="tien">${tien(v)}</span></div>`).join('')}</div>` : ''}
