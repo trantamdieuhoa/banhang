@@ -37,6 +37,8 @@ const HUONG_DAN = `Bạn là kế toán kho của 1 tiệm tạp hoá ở Đà N
 - tt: thành tiền phải trả của dòng (lấy "Thành tiền sau CK" nếu có). Dòng khuyến mãi / tặng → 0.
 - ck: tiền chiết khấu riêng của dòng (cột "Tiền CK") nếu có, không có → 0.
 - km: true nếu là hàng khuyến mãi / tặng / trưng bày không tính tiền: dòng nằm trong bảng "Hàng khuyến mãi", cột "SP Tặng", hoặc có "Số tiền KM/TB" mà thành tiền trống/0.
+  QUAN TRỌNG: nhiều toa (vd Vinamilk/DMS.ONE) có BẢNG "Hàng khuyến mãi" RIÊNG nằm DƯỚI bảng chính (cột Mã hàng, Tên hàng, QC, Thùng, Lẻ, Chương trình bán hàng).
+  MỖI hàng của bảng đó phải trả về 1 dòng riêng với km = true (dù không có giá). Đừng bỏ sót bảng này.
   Hàng tặng là món KHÁC món mua (vd mua dầu 5L tặng chai 1L) → vẫn 1 dòng km riêng với đúng tên món tặng, số lượng theo ĐVT in (vd "24 Chai" → thung 0, le 24).
   "Chiết khấu" tiền trong cột SP tặng KHÔNG phải hàng → không thành dòng, cộng vào ck_toa.
 - chac: 0–1 độ chắc chắn dòng này đọc đúng (ảnh mờ, bị gạch sửa → thấp).
@@ -97,14 +99,20 @@ Deno.serve(async (req) => {
       ...anh.map((a) => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: a } })),
       { type: 'text', text: `NHÀ CUNG CẤP (theo app): ${ncc || '(chưa rõ)'}\nMÃ ĐÃ BIẾT (mã trên toa=id):\n${maBiet || '(chưa có)'}\n\nDANH MỤC (id|tên|đơn vị nhỏ|quy cách:số đơn vị):\n${ds}` },
     ];
-    const r = await fetch(AI_URL, {
+    // Bắt buộc gọi công cụ tra_toa; model nào không hỗ trợ kiểu bắt buộc (vd Sonnet 5.5) → gửi lại kiểu "auto" + dặn phải gọi công cụ
+    const hoiAI = (tc: unknown) => fetch(AI_URL, {
       method: 'POST',
       headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model, max_tokens: 8000, system: HUONG_DAN, tools: [CONG_CU], tool_choice: { type: 'tool', name: 'tra_toa' }, messages: [{ role: 'user', content: noiDung }] }),
+      body: JSON.stringify({ model, max_tokens: 8000, system: HUONG_DAN + (tc ? '' : '\nBẮT BUỘC trả lời bằng cách gọi công cụ tra_toa (không viết chữ).'),
+        tools: [CONG_CU], ...(tc ? { tool_choice: tc } : {}), messages: [{ role: 'user', content: noiDung }] }),
     });
-    const j = await r.json().catch(() => ({}));
+    let r = await hoiAI({ type: 'tool', name: 'tra_toa' });
+    let j = await r.json().catch(() => ({}));
+    if (r.status === 400 && /tool_choice/.test((j.error && j.error.message) || '')) { r = await hoiAI(null); j = await r.json().catch(() => ({})); }
     if (!r.ok) throw new Error('AI báo lỗi ' + r.status + ': ' + ((j.error && j.error.message) || ''));
-    const tu = ((j.content || []).find((c: { type: string }) => c.type === 'tool_use') || {}).input || {};
+    const tuDung = (j.content || []).find((c: { type: string }) => c.type === 'tool_use');
+    if (!tuDung) throw new Error('AI không trả kết quả đúng dạng – thử lại');
+    const tu = tuDung.input || {};
     const kq = {
       so_toa: String(tu.so_toa ?? '').slice(0, 60), ngay: String(tu.ngay ?? '').slice(0, 10), ncc_ten: String(tu.ncc_ten ?? '').slice(0, 200),
       dong: (Array.isArray(tu.dong) ? tu.dong : []).slice(0, 80).map((d: Record<string, unknown>) => ({
