@@ -218,7 +218,7 @@ setTimeout(function () {
 
 // ── 1. CẤU HÌNH ──────────────────────────────────────────────────────
 // Số bản hiện ở cuối tab Thêm. MỖI LẦN ĐƯA BẢN MỚI LÊN PHẢI ĐỔI SỐ NÀY (để biết điện thoại đã nhận bản mới chưa).
-const BAN = '3.7.2';
+const BAN = '3.8';
 const CFG = {
   url: 'https://mrfwdmpdkhnhfblldzba.supabase.co',
   key: 'sb_publishable_92KnloG8NcjLUmpr92s6xw_7yPlsYJ3',  // khoá CÔNG KHAI – để ở đây là an toàn
@@ -2362,6 +2362,7 @@ function veThem() {
       ${coQuyen('nhap_toa') ? `<div class="muc dong" data-a="kkMo"><span class="gian">📋 <b>Kiểm kho</b><br><span class="mo">${S.hang.filter(h => h.ton != null).length} món chủ lực · đếm nhanh, báo lệch</span></span>›</div>` : ''}
       <div class="muc dong" data-a="taiLaiTatCa"><span class="gian">⟳ <b>Tải lại dữ liệu</b><br><span class="mo">${S.hang.length} hàng · ${S.khach.length} khách</span></span></div>
       <div class="muc dong" data-a="doiMatKhau"><span class="gian">🔑 <b>Đổi mật khẩu</b></span>›</div>
+      ${pinBat() ? '<div class="muc dong" data-a="doiPin"><span class="gian">🔒 <b>Đổi mã PIN mở app</b><br><span class="mo">App tự khoá sau ' + PIN_PHUT + ' phút không dùng</span></span>›</div>' : ''}
       <div class="muc dong" data-a="dangXuat"><span class="gian no">⎋ Đăng xuất</span></div>
     </div>
     <p class="mo" style="text-align:center">Bản ${BAN}</p>`;
@@ -2567,13 +2568,22 @@ HD.csLuu = el => chay(el, 'Đang chốt…', async () => {
 });
 
 // ── Sao lưu: tải file Excel (dùng thư viện SheetJS, chỉ tải về khi bấm) ──
-HD.saoLuu = () => moBang('Sao lưu dữ liệu', () => `
+HD.saoLuu = () => { moBang('Sao lưu dữ liệu', () => `
   <div class="the"><b>⬇ Tải file Excel ngay</b><p class="mo">1 file gồm: Hàng & giá, Khách & nợ, Đơn 35 ngày gần nhất + mọi đơn còn nợ, Chi tiết đơn, Nợ NCC, Nhà cung cấp.</p>
     <button class="nut chinh" style="width:100%" data-a="taiExcel">⬇ Tải Excel</button></div>
   <div class="the"><b>🔁 Tự sao lưu hằng tuần vào Google Drive</b>
     <p class="mo">Apps Script tự chạy tối Chủ nhật, lưu 1 file Google Sheets vào thư mục <b>Sao lưu cửa hàng</b> trên Drive (giữ 12 bản gần nhất).
     Cần 1 <b>mã sao lưu</b> dán vào Apps Script – xem hướng dẫn đi kèm bản 1.6.</p>
-    <button class="nut" style="width:100%" data-a="layMaSaoLuu">🔑 Tạo mã sao lưu mới</button></div>`);
+    <button class="nut" style="width:100%" data-a="layMaSaoLuu">🔑 Tạo mã sao lưu mới</button></div>
+  <div class="the"><b>🕵 Các lần dùng mã sao lưu (10 lần gần nhất)</b>
+    <p class="mo">Bình thường chỉ có 1 lần mỗi tối Chủ nhật (Apps Script). Thấy giờ lạ / dày bất thường → có người khác đang dùng mã: bấm "Tạo mã sao lưu mới" ngay.</p>
+    <div id="nk-sao-luu" class="mo">Đang tải…</div></div>`); veNhatKySaoLuu(); };
+async function veNhatKySaoLuu() {
+  const ds = await api('nhat_ky_sao_luu?select=luc,dia_chi,trinh_duyet&order=luc.desc&limit=10').catch(() => null);
+  const o = $('#nk-sao-luu'); if (!o) return;
+  o.innerHTML = ds === null ? 'Chưa xem được (máy chủ chưa nâng cấp BM01)' : !ds.length ? 'Chưa có lần nào.'
+    : ds.map(x => `<div style="padding:4px 0;border-bottom:1px solid var(--vien)">${esc(new Date(x.luc).toLocaleString('vi-VN'))} · ${esc(x.dia_chi || '?')}<br><span style="font-size:11px">${esc((x.trinh_duyet || '').slice(0, 80))}</span></div>`).join('');
+}
 HD.layMaSaoLuu = async el => {
   if (!await xacNhan('Tạo mã mới thì mã cũ (nếu đã dán vào Apps Script) hết hiệu lực. Tiếp tục?', 'Tạo mã')) return;
   const ma = await chay(el, 'Đang tạo…', () => rpc('tao_ma_sao_luu'));
@@ -2631,7 +2641,7 @@ HD.dangXuat = async () => {
   if (await xacNhan('Đăng xuất khỏi máy này?', 'Đăng xuất')) dangXuat();
 };
 function dangXuat() {
-  const tk = phien && phien.access_token; phien = null; S.toi = null;
+  boManKhoa(); const tk = phien && phien.access_token; phien = null; S.toi = null;
   if (tk) fetch(CFG.url + '/auth/v1/logout', { method: 'POST', headers: { apikey: CFG.key, Authorization: 'Bearer ' + tk } }).catch(() => {});
   ['bh_phien', 'bh_toi', 'bh_khach', 'bh_gio', 'bh_gios', 'bh_gio_so', 'bh_don_cho'].forEach(xoa); S.donCho = []; S.bangs = []; veBang(); S.tab = 'ban';
   S.gios = [gioMoi()]; S.gioSo = 0; S.gio = S.gios[0]; S.noDs = null; veDangNhap();
@@ -3914,7 +3924,7 @@ async function vaoApp() {
   S.toi = nv[0] || null; luu('bh_toi', S.toi);
   if (!S.toi || !S.toi.hoat_dong) return veChoDuyet();
   await Promise.all([taiCauHinh(), taiKhach(), S.hang.length ? Promise.resolve() : taiHang(true)]);
-  veKhung(); kiemYeuCau();
+  veKhung(); kiemYeuCau(); kiemKhoa(true);
   if (Date.now() - S.hangLuc > 60e3) taiHang(true).catch(() => {});
   guiDonCho();
 }
@@ -3924,7 +3934,7 @@ async function khoiDong() {
   chuanBiHang(); S.khach.forEach(k => { k._t = chuoiTimKhach(k); });
   if (!phien) return veDangNhap();
   // Đã đăng nhập trước đó: vẽ ngay bằng dữ liệu lưu trên máy, rồi cập nhật ngầm
-  if (S.toi && S.toi.hoat_dong) veKhung();
+  if (S.toi && S.toi.hoat_dong) { veKhung(); kiemKhoa(false); }
   try { await vaoApp(); }
   catch (e) { if (!phien) return; if (S.toi && S.toi.hoat_dong) thongBao(e.message + ' – đang dùng dữ liệu lưu trên máy', 'loi'); else veDangNhap(e.message); }
 }
@@ -3937,6 +3947,88 @@ document.addEventListener('visibilitychange', () => {
 // Chỉ khi app chạy ở web riêng (GitHub Pages), không chạy trong khung Apps Script.
 if ('serviceWorker' in navigator && window.top === window && /^https:|^http:\/\/localhost/.test(location.href) && !/google/.test(location.hostname))
   navigator.serviceWorker.register('sw.js').catch(() => {});
+// ── KHOÁ APP BẰNG MÃ PIN (BM01) ──────────────────────────────────────
+// iPad dùng chung ở quầy: để yên quá PIN_PHUT phút (hoặc mở lại app sau chừng đó) → che kín màn hình, nhập PIN 4 số mới mở.
+// PIN riêng từng người, từng máy; chỉ lưu MÃ BĂM (SHA-256) trên máy, không gửi đi đâu. Sai 5 lần → đăng xuất (vào lại bằng mật khẩu).
+// Máy test (?thu=...) tắt khoá trừ khi có &pin=1.
+const PIN_PHUT = 5, PIN_SAI_TOI_DA = 5;
+const pinBat = () => !/[?&]thu=/.test(location.search) || /[?&]pin=1/.test(location.search);
+const pinKhoa = () => 'bh_pin_' + (phien && phien.user ? phien.user.id : '');
+let lanCham = Number(doc('bh_lan_cham')) || Date.now(), dangKhoa = false, luuChamLuc = 0;
+function ghiCham() {
+  if (dangKhoa) return; lanCham = Date.now();
+  if (lanCham - luuChamLuc > 15000) { luuChamLuc = lanCham; luu('bh_lan_cham', lanCham); }   // nhớ qua lần mở app sau
+}
+['touchstart', 'mousedown', 'keydown', 'input'].forEach(ev => document.addEventListener(ev, ghiCham, true));
+async function bamPin(pin) {
+  const chu = pin + '|' + (phien && phien.user ? phien.user.id : '') + '|banhang-pin';
+  try {
+    const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(chu));
+    return 's' + Array.from(new Uint8Array(h)).map(x => ('0' + x.toString(16)).slice(-2)).join('');
+  } catch (e) {   // máy không có crypto.subtle: băm đơn giản (vẫn không lưu PIN thật)
+    let a = 5381, b = 52711; for (let i = 0; i < chu.length; i++) { const c = chu.charCodeAt(i); a = (a * 33) ^ c; b = (b * 31) ^ c; }
+    return 'd' + (a >>> 0).toString(16) + (b >>> 0).toString(16);
+  }
+}
+function kiemKhoa(moiVao) {
+  if (!pinBat() || !phien || !S.toi || !S.toi.hoat_dong || dangKhoa) return;
+  if (!doc(pinKhoa())) return veManKhoa('dat');                          // chưa có PIN → bắt đặt
+  if (Date.now() - lanCham > PIN_PHUT * 60e3) return veManKhoa('mo');     // để yên quá lâu → khoá
+  if (moiVao) ghiCham();
+}
+setInterval(() => kiemKhoa(false), 10000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) kiemKhoa(false); });
+window.addEventListener('pageshow', () => kiemKhoa(false));
+let PK = null;   // trạng thái màn khoá: {che: 'dat' | 'nhaplai' | 'mo', so: '', pin1: ''}
+function veManKhoa(che) {
+  dangKhoa = true; PK = { che, so: '', pin1: '', bao: '' };
+  let o = document.getElementById('khoa-pin');
+  if (!o) {
+    o = document.createElement('div'); o.id = 'khoa-pin';
+    o.style.cssText = 'position:fixed;top:0;right:0;bottom:0;left:0;z-index:100;background:var(--nen);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;overflow:auto';
+    o.addEventListener('click', e => { const b = e.target.closest('[data-p]'); if (b) bamPhimPin(b.getAttribute('data-p')); });
+    document.body.appendChild(o);
+  }
+  veLaiManKhoa();
+}
+function veLaiManKhoa() {
+  const o = document.getElementById('khoa-pin'); if (!o || !PK) return;
+  const tieuDe = PK.che === 'dat' ? 'Đặt mã PIN 4 số để mở app' : PK.che === 'nhaplai' ? 'Gõ lại mã PIN' : '🔒 Nhập mã PIN';
+  const phim = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'xoa'];
+  o.innerHTML = `<div style="max-width:320px;width:100%;text-align:center">
+    <div style="font-size:15px;color:var(--phu)">${esc(S.toi ? S.toi.ten : '')}</div>
+    <h2 style="margin:6px 0 4px">${tieuDe}</h2>
+    <p class="mo" style="margin:0 0 14px;min-height:20px">${esc(PK.bao || (PK.che === 'dat' ? 'App tự khoá sau ' + PIN_PHUT + ' phút không dùng – giữ thông tin khách an toàn' : ''))}</p>
+    <div style="font-size:30px;letter-spacing:14px;margin-bottom:18px">${[0, 1, 2, 3].map(i => i < PK.so.length ? '●' : '○').join('')}</div>
+    <div style="display:flex;flex-wrap:wrap;margin:0 -5px">${phim.map(p => p === '' ? '<span style="width:33.33%"></span>'
+      : `<span style="width:33.33%;padding:5px;box-sizing:border-box"><button type="button" class="nut" data-p="${p}" style="width:100%;height:58px;font-size:24px">${p === 'xoa' ? '⌫' : p}</button></span>`).join('')}</div>
+    ${PK.che === 'mo' ? '<button type="button" class="nut" data-p="quen" style="width:100%;margin-top:14px;font-size:14px">Quên mã PIN → đăng xuất, vào lại bằng mật khẩu</button>' : ''}</div>`;
+}
+document.addEventListener('keydown', e => { if (dangKhoa && /^[0-9]$/.test(e.key)) bamPhimPin(e.key); else if (dangKhoa && e.key === 'Backspace') bamPhimPin('xoa'); });
+async function bamPhimPin(p) {
+  if (!PK) return;
+  if (p === 'quen') { xoa(pinKhoa()); xoa(pinKhoa() + '_sai'); dangXuat(); return; }
+  if (p === 'xoa') { PK.so = PK.so.slice(0, -1); return veLaiManKhoa(); }
+  if (PK.so.length >= 4) return;
+  PK.so += p; PK.bao = ''; veLaiManKhoa();
+  if (PK.so.length < 4) return;
+  const so = PK.so;
+  if (PK.che === 'dat') { PK.pin1 = so; PK.che = 'nhaplai'; PK.so = ''; return veLaiManKhoa(); }
+  if (PK.che === 'nhaplai') {
+    if (so !== PK.pin1) { PK.che = 'dat'; PK.so = ''; PK.pin1 = ''; PK.bao = 'Hai lần không khớp – đặt lại'; return veLaiManKhoa(); }
+    luu(pinKhoa(), await bamPin(so)); xoa(pinKhoa() + '_sai'); boManKhoa(); thongBao('Đã đặt mã PIN', 'tot'); return;
+  }
+  // mở khoá
+  if (await bamPin(so) === doc(pinKhoa())) { xoa(pinKhoa() + '_sai'); boManKhoa(); return; }
+  const sai = (Number(doc(pinKhoa() + '_sai')) || 0) + 1; luu(pinKhoa() + '_sai', sai);
+  if (sai >= PIN_SAI_TOI_DA) { xoa(pinKhoa()); xoa(pinKhoa() + '_sai'); dangXuat(); setTimeout(() => { const l = $('#loi-dn'); if (l) l.textContent = 'Nhập sai mã PIN ' + PIN_SAI_TOI_DA + ' lần – đăng nhập lại bằng mật khẩu'; }, 50); return; }
+  PK.so = ''; PK.bao = 'Sai mã PIN – còn ' + (PIN_SAI_TOI_DA - sai) + ' lần thử'; veLaiManKhoa();
+}
+function boManKhoa() {
+  const o = document.getElementById('khoa-pin'); if (o) o.remove();
+  dangKhoa = false; PK = null; lanCham = Date.now(); luu('bh_lan_cham', lanCham);
+}
+HD.doiPin = () => veManKhoa('dat');
 // iPHONE/iPAD ĐỜI CŨ (iOS 12): Safari chỉ phát "click" khi phần tử – hoặc 1 khung cha DƯỚI body – có bắt bấm.
 // Bắt bấm ở document không tính → gắn thêm 1 bộ bắt rỗng vào khung app #goc (lớp dự phòng cùng với cursor:pointer).
 $('#goc').addEventListener('click', () => {});
