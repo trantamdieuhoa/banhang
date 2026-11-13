@@ -1683,7 +1683,9 @@ DOI.aiHang = el => { const d = S.ai.dong[el.dataset.idx]; d.id = el.value; d.qc 
 // Quy cách AI đưa phải có trong bảng giá của món; không có thì lấy quy cách đầu tiên
 function qcHopLe(h, qc) {
   if (!h || !h.gia.length) return '';
-  const g = h.gia.find(x => boDau(x.qc) === boDau(qc || ''));
+  // AI đôi khi trả nhiều quy cách gộp ("thùng,chục") → lấy quy cách đầu tiên có trong bảng giá
+  const ds = String(qc || '').split(/[,/;]/).map(x => boDau(x.trim())).filter(Boolean);
+  const g = ds.map(q => h.gia.find(x => boDau(x.qc) === q)).find(Boolean);
   return g ? g.qc : (h.gia.find(x => Number(x.qd) === 1) || h.gia[0]).qc;
 }
 // Tìm tay món khác cho 1 dòng
