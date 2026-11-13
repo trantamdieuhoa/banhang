@@ -3481,15 +3481,21 @@ async function docToaAI(toa, files, manh, nccSan) {
     if (!blobs.length) throw new Error('Toa này chưa có ảnh – bấm 📎 thêm ảnh trước');
     const anh = await Promise.all(blobs.map(sangBase64));
     await tokenConHan();
-    // Danh mục gửi AI: mã|tên|đơn vị nhỏ nhất|quy cách:số đv  +  mã SP của NCC này đã nhớ (DT01)
-    const ds = S.hang.map(h => h.id + '|' + h.ten + '|' + h.dv + '|' + h.gia.map(g => g.qc + ':' + so(g.qd)).join(',')).join('\n');
+    // Mã SP của NCC này đã nhớ (DT01)
     const maMap = {}; (await api('ma_hang_ncc?select=ma,hang_hoa_id&ncc_id=eq.' + encodeURIComponent(n.id)).catch(() => [])).forEach(x => { maMap[x.ma] = x.hang_hoa_id; });
+    // TIẾT KIỆM: danh mục chiếm phần lớn chi phí → chỉ gửi các món NCC này từng giao (ncc_hang) + món đã nhớ mã,
+    // nếu NCC đã có ≥ 10 món. NCC mới / "Đọc lại kỹ" → gửi cả danh mục để không sót món mới.
+    const cuaNcc = new Set([...(await api('ncc_hang?select=hang_hoa_id&ncc_id=eq.' + encodeURIComponent(n.id)).catch(() => [])).map(x => x.hang_hoa_id), ...Object.values(maMap)]);
+    const loc = !manh && cuaNcc.size >= 10, dsHang = loc ? S.hang.filter(h => cuaNcc.has(h.id)) : S.hang;
+    // Mỗi dòng gọn: mã|tên|đơn vị nhỏ nhất|quy cách lớn:số đv (bỏ quy cách = 1 đơn vị cho đỡ token)
+    const ds = (loc ? '(Chỉ gồm các món NCC này từng giao. Món không có trong danh sách → id rỗng "")\n' : '')
+      + dsHang.map(h => h.id + '|' + h.ten + '|' + h.dv + (h.gia.some(g => g.qd > 1) ? '|' + h.gia.filter(g => g.qd > 1).map(g => g.qc + ':' + so(g.qd)).join(',') : '')).join('\n');
     const kq = await goiDocToa({ anh, ds, ncc: n.ten, manh: !!manh, ma_biet: Object.entries(maMap).map(([m, id]) => m + '=' + id).join('\n') });
-    return Object.assign(kq, { maMap });
+    return Object.assign(kq, { maMap, soMonGui: dsHang.length, loc });
   });
   const { dong, ai } = quyDoiToa(kq, kq.maMap);
   if (!dong.length) return thongBao('AI không thấy dòng hàng nào trên toa – chụp lại rõ, thẳng, đủ sáng', 'loi');
-  ai.manh = !!manh; S.toa = { n, toa, dong, aiTong: Math.round(kq.tong_phai_tra || 0), gv: {}, ai, files: files && files.length ? files : null };
+  ai.manh = !!manh; ai.soMonGui = kq.soMonGui; ai.loc = kq.loc; S.toa = { n, toa, dong, aiTong: Math.round(kq.tong_phai_tra || 0), gv: {}, ai, files: files && files.length ? files : null };
   if (manh) S.bangs = S.bangs.filter(b => !/^Duyệt toa/.test(b.tieuDe || ''));   // đọc lại: bỏ màn duyệt cũ
   await napGiaVon(dong.map(d => d.id));
   moBang('Duyệt toa ' + (toa.so_toa ? 'số ' + toa.so_toa : ngayNgan(toa.ngay || new Date().toISOString())), veDuyetToa);
@@ -3563,6 +3569,7 @@ function veToaAI(t, chon) {
       ${!khop && a.manh ? '<p class="no" style="margin:4px 0 0">AI mạnh vẫn lệch – sửa tay các dòng viền vàng theo toa.</p>' : ''}
       ${chuaKhop ? `<p class="no" style="margin:4px 0 0">🔍 ${chuaKhop} dòng chưa khớp món trong app – bấm 🔍 chọn món (lần sau app nhớ mã), hoặc thêm món mới.</p>` : ''}
       ${a.ghiCk ? `<p class="mo" style="margin:4px 0 0">💸 ${esc(a.ghiCk)}</p>` : ''}
+      <p class="mo" style="margin:4px 0 0;font-size:12px">AI ${a.manh ? 'mạnh' : 'thường'} · so với ${a.soMonGui || '?'} món ${a.loc ? 'của NCC này (tiết kiệm)' : 'trong danh mục'}</p>
       ${a.kmDong ? `<p class="mo" style="margin:4px 0 0">🎁 Hàng KM: ${km.length}/${a.kmDong} dòng chọn${a.kmTong ? ', toa ghi trị giá ' + tien(a.kmTong) : ''} – giá 0đ, không tính nợ NCC, kéo giá vốn bình quân xuống.</p>` : ''}
       ${a.cuocVo ? `<p class="no" style="margin:4px 0 0">🍾 Cược vỏ ${tien(a.cuocVo)} – chưa tính vào hàng, ghi riêng nếu cần.</p>` : ''}
       ${a.ghiChuTay.length ? `<div style="background:var(--vang-nhat, #fff6db);border-radius:8px;padding:6px 8px;margin-top:6px"><b>✍ Ghi chú viết tay trên toa – app KHÔNG tự tính, anh quyết:</b>
