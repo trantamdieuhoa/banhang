@@ -3558,7 +3558,8 @@ function veToaAI(t, chon) {
       <div class="tong-dong"><span>Toa in "Tổng phải trả"</span><b class="tien">${tien(a.tongPhaiTra)}</b></div>
       <div class="tong-dong"><span></span>${khop ? '<b style="color:var(--chinh)">Dòng mua khớp tổng phải trả ✓</b>'
         : `<b class="no">Dòng mua ${lech > 0 ? 'dư' : 'thiếu'} ${tien(Math.abs(lech))} so với toa – kiểm lại</b>`}</div>
-      ${!khop && !a.manh ? `<button class="nut" style="width:100%;margin-top:6px" data-a="toaDocKy">🔁 Đọc lại kỹ bằng AI mạnh (~2.000đ)</button>` : ''}
+      ${!a.manh ? (!khop ? `<button class="nut chinh" style="width:100%;margin-top:6px" data-a="toaDocKy">🔁 Đọc lại kỹ bằng AI mạnh (~2.000đ)</button>`
+        : `<button class="nut nho" style="width:100%;margin-top:6px" data-a="toaDocKy">🔁 Đọc lại kỹ (nếu thấy thiếu dòng KM / sai món) ~2.000đ</button>`) : ''}
       ${!khop && a.manh ? '<p class="no" style="margin:4px 0 0">AI mạnh vẫn lệch – sửa tay các dòng viền vàng theo toa.</p>' : ''}
       ${chuaKhop ? `<p class="no" style="margin:4px 0 0">🔍 ${chuaKhop} dòng chưa khớp món trong app – bấm 🔍 chọn món (lần sau app nhớ mã), hoặc thêm món mới.</p>` : ''}
       ${a.ghiCk ? `<p class="mo" style="margin:4px 0 0">💸 ${esc(a.ghiCk)}</p>` : ''}
