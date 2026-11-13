@@ -213,7 +213,7 @@ setTimeout(function () {
 
 // ── 1. CẤU HÌNH ──────────────────────────────────────────────────────
 // Số bản hiện ở cuối tab Thêm. MỖI LẦN ĐƯA BẢN MỚI LÊN PHẢI ĐỔI SỐ NÀY (để biết điện thoại đã nhận bản mới chưa).
-const BAN = '3.6';
+const BAN = '3.7';
 const CFG = {
   url: 'https://mrfwdmpdkhnhfblldzba.supabase.co',
   key: 'sb_publishable_92KnloG8NcjLUmpr92s6xw_7yPlsYJ3',  // khoá CÔNG KHAI – để ở đây là an toàn
@@ -1729,6 +1729,17 @@ async function goiDocDon(goi) {
   if (!r.ok || j.loi) throw new Error(j.loi || j.message || ('AI lỗi ' + r.status));
   return j;
 }
+// DT01: đọc toa NCC bằng hàm Supabase "doc_toa" (Claude). Cần quyền "Nhập toa NCC" (máy chủ kiểm).
+async function goiDocToa(goi) {
+  let r;
+  try {
+    r = await fetch(CFG.url + '/functions/v1/doc_toa', { method: 'POST',
+      headers: { apikey: CFG.key, Authorization: 'Bearer ' + phien.access_token, 'Content-Type': 'application/json' }, body: JSON.stringify(goi) });
+  } catch (e) { throw new Error(dichLoi('Failed to fetch') + ' – AI cần mạng, nhập tay vẫn được'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.loi) throw new Error(j.loi || j.message || ('AI lỗi ' + r.status));
+  return j;
+}
 // Lọc trước các món khách CÓ THỂ nói tới → gửi AI ít món (rẻ + nhanh + ít nhầm).
 // Mỗi dòng / mỗi đoạn tin lấy tối đa 20 món khớp nhiều chữ nhất. Có ảnh, hoặc lọc không ra món nào → gửi cả danh mục.
 const AI_TU_BO = new Set(('cho em anh chi lay them nhe nha va voi giao giup minh toi ban oi ak ah cai con nua mua dat gui roi nhanh sang chieu mai hom nay ' +
@@ -2480,7 +2491,8 @@ async function taiChotSo() {
     api('v_ncc_han_no?select=id,ten,qua_han,con_no&qua_han=gte.0&order=qua_han.desc').catch(() => [])]);
   // BG01: AI đọc đơn trong ngày (để đo mục tiêu bớt giờ). Lỗi/chưa nâng cấp → bỏ qua.
   const dau = encodeURIComponent(S.cs.ngay + 'T00:00:00+07:00'), sau = encodeURIComponent(new Date(new Date(S.cs.ngay + 'T00:00:00+07:00').getTime() + 864e5).toISOString());
-  S.cs.ai = await api('ai_doc_don?select=da_dung,so_dong_dung,so_dong_sua,token_vao,token_ra,loi&tao_luc=gte.' + dau + '&tao_luc=lt.' + sau).catch(() => []);
+  S.cs.ai = await api('ai_doc_don?select=viec,da_dung,so_dong_dung,so_dong_sua,token_vao,token_ra,loi&tao_luc=gte.' + dau + '&tao_luc=lt.' + sau)
+    .catch(() => api('ai_doc_don?select=da_dung,so_dong_dung,so_dong_sua,token_vao,token_ra,loi&tao_luc=gte.' + dau + '&tao_luc=lt.' + sau)).catch(() => []);
   S.cs.t = t; S.cs.ls = ls; S.cs.nccHan = han; S.cs.quy = t.da_chot ? t.da_chot.quy_dau : t.quy_dau; S.cs.dem = ''; S.cs.rut = '';
 }
 const phaiCo = () => (Number(S.cs.quy) || 0) + Number(S.cs.t.thu_tm) - Number(S.cs.t.chi_tm);
@@ -2522,10 +2534,16 @@ function veChotSo() {
 // "🤖 AI đọc đơn: 12 lượt · 30 món đúng / 4 sửa tay · ≈ 300đ". Tiền ước: Haiku $0,10 / $0,50 mỗi 1 triệu token, 1$ ≈ 26.000đ
 function veAIChotSo(ds) {
   if (!ds || !ds.length) return '';
+  const toa = ds.filter(x => x.viec === 'doc_toa'); if (toa.length) return veAIChotSo(ds.filter(x => x.viec !== 'doc_toa')) + veAIToaChotSo(toa);
   const cong = k => ds.reduce((s, x) => s + (Number(x[k]) || 0), 0);
   const dong = Math.round((cong('token_vao') * 0.10 + cong('token_ra') * 0.50) / 1e6 * 26000);
   const loi = ds.filter(x => x.loi).length;
   return `<div class="tong-dong mo"><span>🤖 AI đọc đơn: ${ds.length} lượt · ${cong('so_dong_dung')} món đúng / ${cong('so_dong_sua')} sửa tay${loi ? ' · ' + loi + ' lỗi' : ''}</span><span>≈ ${tien(dong)}</span></div>`;
+}
+function veAIToaChotSo(ds) {
+  const cong = k => ds.reduce((s, x) => s + (Number(x[k]) || 0), 0), loi = ds.filter(x => x.loi).length;
+  const dong = Math.round((cong('token_vao') * 0.10 + cong('token_ra') * 0.50) / 1e6 * 26000);
+  return `<div class="tong-dong mo"><span>🤖 AI đọc toa: ${ds.length} lượt${loi ? ' · ' + loi + ' lỗi' : ''}</span><span>≈ ${tien(dong)}</span></div>`;
 }
 const veLech = n => (n = Number(n)) === 0 ? '<b style="color:var(--chinh)">Khớp ✓</b>' : n > 0 ? `<b style="color:var(--vang)">Thừa ${tien(n)}</b>` : `<b class="no">Thiếu ${tien(-n)}</b>`;
 DOI.csNgay = async el => { S.cs.ngay = el.value || ngayVN(0); try { await taiChotSo(); veBang(); } catch (e) { thongBao(e.message, 'loi'); } };
@@ -3413,6 +3431,47 @@ async function napGiaVon(ids) {   // giá vốn hiện tại để so "cũ → m
   ids = [...new Set(ids.filter(Boolean))].filter(id => !(id in S.toa.gv)); if (!ids.length) return;
   (await api('hang_hoa?select=id,gia_von&id=in.(' + ids.map(encodeURIComponent).join(',') + ')')).forEach(x => S.toa.gv[x.id] = Number(x.gia_von) || 0);
 }
+// ── DT01: quy đổi toa AI đọc (in y như toa) → dòng màn duyệt (theo quy cách app) ──
+// • Dòng mua: thùng → 1 dòng quy cách thùng của app (nếu QC khớp) hoặc quy ra đơn vị nhỏ; lẻ → 1 dòng đơn vị nhỏ theo giá lẻ.
+//   Giá lấy theo "thành tiền sau CK dòng" (CK dòng đã trừ vào giá).
+// • Dòng KM / tặng → 1 dòng đơn vị nhỏ, giá 0, tick 🎁 hàng tặng.  "30+2 gói" → thêm dòng tặng = số thùng × 2.
+// • Chiết khấu tiền CẢ TOA → chia vào giá nhập các dòng mua theo tỷ lệ thành tiền (giá vốn = tiền thật trả).
+function quyDoiDongToa(d, maMap) {
+  const tuMa = !!(d.ma && maMap[d.ma]), id = tuMa ? maMap[d.ma] : d.id, h = timHang(id);
+  const lon = h ? h.gia.filter(g => g.qd > 1).sort((a, b) => b.qd - a.qd)[0] : null;
+  const Q = d.qc || (lon ? lon.qd : 0), dv = h ? h.dv : 'đv', canh = [];
+  if (h && d.qc && lon && d.thung > 0 && !h.gia.some(g => Math.abs(g.qd - d.qc) < 0.001)) canh.push(`QC toa ${so(d.qc)} ≠ app (${lon.qc} = ${so(lon.qd)} ${dv}) – kiểm lại`);
+  if (h && d.thung > 0 && !Q) canh.push('Không rõ 1 thùng bao nhiêu ' + dv);
+  const goc = [d.ma, d.ten].filter(Boolean).join(' · ');
+  const nen = { goc, ma: d.ma || '', ten: d.ten || '', id: h ? h.id : '', chac: h ? (tuMa ? Math.max(d.chac, 0.95) : d.chac) : 0, tuMa, canh: '' };
+  const tang = (sl, ghi) => Object.assign({}, nen, { goc: goc + ' · ' + ghi, qc: dv, qd: 1, sl, gia: 0, tt: 0, tang: true, km: true, chon: !!h && sl > 0 });
+  const out = [], Qd = Q || 1, sl = d.thung * Qd + d.le;
+  if (d.km) { if (sl > 0) out.push(tang(sl, '🎁 KM')); }
+  else {
+    const giaThung = d.gia_theo === 'don_vi' ? d.gia * Qd : d.gia;
+    const giaLe = d.gia_le || (d.gia_theo === 'don_vi' ? d.gia : d.gia / Qd);
+    const tinh = d.thung * giaThung + d.le * giaLe, tt = d.tt || Math.max(0, tinh - (d.ck || 0)), f = tinh > 0 ? tt / tinh : 1;
+    const qcApp = h && h.gia.find(g => g.qd > 1 && Math.abs(g.qd - Qd) < 0.001);
+    if (d.thung > 0) out.push(qcApp ? Object.assign({}, nen, { qc: qcApp.qc, qd: qcApp.qd, sl: d.thung, gia: Math.round(giaThung * f), tt: Math.round(d.thung * giaThung * f), chon: !!h })
+                                    : Object.assign({}, nen, { qc: dv, qd: 1, sl: d.thung * Qd, gia: Math.round(giaThung / Qd * f), tt: Math.round(d.thung * giaThung * f), chon: !!h }));
+    if (d.le > 0) out.push(Object.assign({}, nen, { goc: goc + ' · lẻ', qc: dv, qd: 1, sl: d.le, gia: Math.round(giaLe * f), tt: Math.round(d.le * giaLe * f), chon: !!h }));
+  }
+  if (d.tang_moi_thung > 0 && d.thung > 0 && !d.km) out.push(tang(d.thung * d.tang_moi_thung, `🎁 tặng ${so(d.tang_moi_thung)}/thùng`));
+  out.forEach(x => { x.canh = canh.join(' · '); });
+  return out;
+}
+function quyDoiToa(kq, maMap) {
+  const dong = (kq.dong || []).flatMap(d => quyDoiDongToa(d, maMap || {}));
+  const mua = dong.filter(d => !d.tang), cong = mua.reduce((a, d) => a + d.sl * d.gia, 0), ck = Math.round(kq.ck_toa || 0);
+  let ghiCk = '';
+  if (ck > 0 && cong > ck) {   // chia CK cả toa theo tỷ lệ thành tiền
+    const f = (cong - ck) / cong; mua.forEach(d => { d.gia = Math.round(d.gia * f); d.tt = Math.round(d.tt * f); });
+    ghiCk = `Đã chia chiết khấu cả toa ${tien(ck)} vào giá nhập các dòng (−${so(Math.round((1 - f) * 1000) / 10)}%)`;
+  }
+  const km = dong.filter(d => d.tang);
+  return { dong, ai: { soToa: kq.so_toa, ngay: kq.ngay, nccTen: kq.ncc_ten, tongPhaiTra: Math.round(kq.tong_phai_tra || 0), ck, ghiCk,
+    kmDong: km.length, kmTong: Math.round(kq.km_tong || 0), cuocVo: Math.round(kq.cuoc_vo || 0), ghiChuTay: kq.ghi_chu_tay || [], model: kq.model, id: kq.id } };
+}
 async function docToaAI(toa, files) {
   if (!S.hang.length) throw new Error(S.hangLuc ? 'Chưa có mặt hàng nào – thêm hàng trước' : 'Chưa tải xong danh mục hàng');
   const n = nccDangMo();
@@ -3422,13 +3481,15 @@ async function docToaAI(toa, files) {
     if (!blobs.length) throw new Error('Toa này chưa có ảnh – bấm 📎 thêm ảnh trước');
     const anh = await Promise.all(blobs.map(sangBase64));
     await tokenConHan();
-    // Danh mục gửi AI: mã|tên|đơn vị nhỏ nhất|quy cách:số đv
+    // Danh mục gửi AI: mã|tên|đơn vị nhỏ nhất|quy cách:số đv  +  mã SP của NCC này đã nhớ (DT01)
     const ds = S.hang.map(h => h.id + '|' + h.ten + '|' + h.dv + '|' + h.gia.map(g => g.qc + ':' + so(g.qd)).join(',')).join('\n');
-    return goiAI({ token: phien.access_token, anh, ds }, 'docToa');
+    const maMap = {}; (await api('ma_hang_ncc?select=ma,hang_hoa_id&ncc_id=eq.' + encodeURIComponent(n.id)).catch(() => [])).forEach(x => { maMap[x.ma] = x.hang_hoa_id; });
+    const kq = await goiDocToa({ anh, ds, ncc: n.ten, ma_biet: Object.entries(maMap).map(([m, id]) => m + '=' + id).join('\n') });
+    return Object.assign(kq, { maMap });
   });
-  const dong = (kq.dong || []).map(chuanDongToa);
+  const { dong, ai } = quyDoiToa(kq, kq.maMap);
   if (!dong.length) return thongBao('AI không thấy dòng hàng nào trên toa – chụp lại rõ, thẳng, đủ sáng', 'loi');
-  S.toa = { n, toa, dong, aiTong: nghin(kq.tong), gv: {} };
+  S.toa = { n, toa, dong, aiTong: Math.round(kq.tong_phai_tra || 0), gv: {}, ai };
   await napGiaVon(dong.map(d => d.id));
   moBang('Duyệt toa ' + (toa.so_toa ? 'số ' + toa.so_toa : ngayNgan(toa.ngay || new Date().toISOString())), veDuyetToa);
 }
@@ -3456,9 +3517,10 @@ function veDuyetToa() {
       <div class="tong-dong"><span>Cộng ${chon.length} dòng đã chọn</span><b class="tien">${tien(tong)}</b></div>
       <div class="tong-dong"><span></span>${Math.abs(lech) <= 1000 ? '<b style="color:var(--chinh)">Khớp tổng toa ✓</b>'
         : `<b class="no">${lech > 0 ? 'Dư' : 'Thiếu'} ${tien(Math.abs(lech))} so với tổng toa</b>`}</div>
+      ${t.ai ? veToaAI(t, chon) : ''}
       <p class="mo" style="margin:6px 0 0">✔ = lưu. Viền vàng = AI không chắc hoặc SL × giá ≠ thành tiền trên toa. Giá là giá nhập <b>1 quy cách trên toa</b>.
         Lưu xong: <b>giá vốn</b> mọi món được cập nhật, món <b>⭐ chủ lực</b> được cộng tồn.</p></div>
-    ${t.dong.map((d, i) => { const h = d.id && timHang(d.id), yeu = !h || d.chac < 0.8 || lechDong(d);
+    ${t.dong.map((d, i) => { const h = d.id && timHang(d.id), yeu = !h || d.chac < 0.8 || lechDong(d) || !!d.canh;
       const gvCu = d.id ? (d.gvCu != null && t.sua ? Number(d.gvCu) : t.gv[d.id]) : null, gvNhap = d.gia > 0 ? Math.round(d.gia / (d.qd || 1)) : 0;
       // GV01: món chủ lực → giá vốn BÌNH QUÂN = (tồn trước × vốn cũ + số nhập × giá nhập) ÷ tổng. Tồn trước = số đếm (nếu gõ) hoặc tồn đang ghi.
       const theoDoi = !!(h && h.ton != null), tonTruoc = theoDoi ? (d.demSl != null ? d.demSl : Number(h.ton)) : 0;
@@ -3468,7 +3530,8 @@ function veDuyetToa() {
         <div class="dong" style="gap:8px"><input type="checkbox" data-d="toaChon" data-idx="${i}" ${d.chon ? 'checked' : ''} style="width:20px;height:20px">
           <span class="gian">${h ? `<b>${esc(h.ten)}</b>` : d.ten ? `<b>${esc(d.ten)}</b>` : '<span class="no">Chưa khớp món nào – bấm 🔍</span>'}
             ${h && h.ton != null ? ' <span class="the-nhan xanh">⭐ cộng tồn</span>' : ''}
-            ${d.goc ? `<br><span class="mo">“${esc(d.goc)}”</span>` : ''}</span>
+            ${d.tuMa ? ' <span class="the-nhan">🔖 mã đã nhớ</span>' : ''}${d.km ? ' <span class="the-nhan xanh">🎁 KM</span>' : ''}
+            ${d.goc ? `<br><span class="mo">“${esc(d.goc)}”</span>` : ''}${d.canh ? `<br><span class="no" style="font-size:13px">⚠ ${esc(d.canh)}</span>` : ''}</span>
           <button class="nut nho" data-a="toaTim" data-i="${i}">🔍</button></div>
         <div class="dong" style="gap:6px;margin-top:6px">
           <label style="flex:3"><span class="mo" style="font-size:11px">Quy cách</span><input class="o" value="${esc(d.qc)}" data-d="toaQc" data-idx="${i}" list="dl-qc-toa"></label>
@@ -3484,6 +3547,20 @@ function veDuyetToa() {
     <datalist id="dl-qc-toa">${['thùng', 'két', 'lốc', 'bao', 'hộp', 'gói', 'chai', 'lon', 'cây', 'chục', 'bịch', 'kg'].map(x => `<option value="${x}">`).join('')}</datalist>
     <button class="nut" style="width:100%;margin-bottom:8px" data-a="toaThemDong">＋ Thêm dòng (món AI bỏ sót)</button>
     <button class="nut chinh" style="width:100%" data-a="toaLuu" ${chon.length || t.sua ? '' : 'disabled'}>💾 Lưu ${chon.length} dòng</button>`;
+}
+// DT01: so cộng dòng mua với "Tổng phải trả" IN trên toa; tóm tắt hàng KM, chiết khấu, ghi chú viết tay
+function veToaAI(t, chon) {
+  const a = t.ai, mua = chon.filter(d => !d.tang).reduce((s, d) => s + ttDong(d), 0), lech = mua - a.tongPhaiTra;
+  const km = chon.filter(d => d.tang);
+  return `<div style="border-top:1px dashed var(--vien);margin-top:8px;padding-top:6px">
+      <div class="tong-dong"><span>Toa in "Tổng phải trả"</span><b class="tien">${tien(a.tongPhaiTra)}</b></div>
+      <div class="tong-dong"><span></span>${Math.abs(lech) <= Math.max(1000, a.tongPhaiTra * 0.001) ? '<b style="color:var(--chinh)">Dòng mua khớp tổng phải trả ✓</b>'
+        : `<b class="no">Dòng mua ${lech > 0 ? 'dư' : 'thiếu'} ${tien(Math.abs(lech))} so với toa – kiểm lại</b>`}</div>
+      ${a.ghiCk ? `<p class="mo" style="margin:4px 0 0">💸 ${esc(a.ghiCk)}</p>` : ''}
+      ${a.kmDong ? `<p class="mo" style="margin:4px 0 0">🎁 Hàng KM: ${km.length}/${a.kmDong} dòng chọn${a.kmTong ? ', toa ghi trị giá ' + tien(a.kmTong) : ''} – giá 0đ, không tính nợ NCC, kéo giá vốn bình quân xuống.</p>` : ''}
+      ${a.cuocVo ? `<p class="no" style="margin:4px 0 0">🍾 Cược vỏ ${tien(a.cuocVo)} – chưa tính vào hàng, ghi riêng nếu cần.</p>` : ''}
+      ${a.ghiChuTay.length ? `<div style="background:var(--vang-nhat, #fff6db);border-radius:8px;padding:6px 8px;margin-top:6px"><b>✍ Ghi chú viết tay trên toa – app KHÔNG tự tính, anh quyết:</b>
+        ${a.ghiChuTay.map(x => `<br>• ${esc(x)}`).join('')}</div>` : ''}</div>`;
 }
 const dongToa = el => S.toa.dong[el.dataset.idx];
 DOI.toaChon = el => { dongToa(el).chon = el.checked; veBang(); };
@@ -3519,6 +3596,9 @@ HD.toaLuu = el => chay(el, 'Đang lưu…', async () => {
   S.bangs.pop(); veBang();
   thongBao('Đã lưu ' + kq.so_dong + ' dòng · giá vốn cập nhật' + (kq.cong_ton ? ' · cộng tồn ' + kq.cong_ton + ' món chủ lực' : '')
     + ((kq.gv_giu || []).length ? '. ⚠ Giá vốn GIỮ NGUYÊN (đã có toa mới hơn): ' + kq.gv_giu.join(', ') + ' – kiểm lại ở trang món' : ''), (kq.gv_giu || []).length ? 'loi' : 'tot');
+  // DT01: nhớ "mã SP của NCC → món" cho lần sau (cả dòng anh sửa tay bằng 🔍)
+  if (t.ai) { const ma = {}; ds.forEach(d => { if (d.ma && d.id) ma[d.ma] = d.id; });
+    if (Object.keys(ma).length) rpc('luu_ma_hang_ncc', { p_ncc: t.n.id, p_ds: Object.entries(ma).map(([m, id]) => ({ ma: m, hang_hoa_id: id })) }).catch(() => {}); }
   taiHang(true).catch(() => {}); if (nccDangMo() && nccDangMo().id === t.n.id) await taiLaiNcc();
   if (kq.tang && kq.tang.length) moGoiYGia(kq.tang);
 });
