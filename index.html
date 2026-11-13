@@ -218,7 +218,7 @@ setTimeout(function () {
 
 // ── 1. CẤU HÌNH ──────────────────────────────────────────────────────
 // Số bản hiện ở cuối tab Thêm. MỖI LẦN ĐƯA BẢN MỚI LÊN PHẢI ĐỔI SỐ NÀY (để biết điện thoại đã nhận bản mới chưa).
-const BAN = '3.7.1';
+const BAN = '3.7.2';
 const CFG = {
   url: 'https://mrfwdmpdkhnhfblldzba.supabase.co',
   key: 'sb_publishable_92KnloG8NcjLUmpr92s6xw_7yPlsYJ3',  // khoá CÔNG KHAI – để ở đây là an toàn
@@ -3937,6 +3937,29 @@ document.addEventListener('visibilitychange', () => {
 // Chỉ khi app chạy ở web riêng (GitHub Pages), không chạy trong khung Apps Script.
 if ('serviceWorker' in navigator && window.top === window && /^https:|^http:\/\/localhost/.test(location.href) && !/google/.test(location.hostname))
   navigator.serviceWorker.register('sw.js').catch(() => {});
+// iPHONE/iPAD ĐỜI CŨ (iOS 12): Safari chỉ phát "click" khi phần tử – hoặc 1 khung cha DƯỚI body – có bắt bấm.
+// Bắt bấm ở document không tính → gắn thêm 1 bộ bắt rỗng vào khung app #goc (lớp dự phòng cùng với cursor:pointer).
+$('#goc').addEventListener('click', () => {});
+// BÁO BẢN MỚI: iOS cũ hay giữ bản app cũ rất lâu. Mở app / quay lại app / 10 phút 1 lần → hỏi máy chủ số bản;
+// khác bản đang chạy → hiện nút "Có bản mới – chạm để cập nhật" (tải lại bỏ qua bản lưu).
+let lanKiemBan = 0;
+async function kiemBanMoi() {
+  if (!/^https:/.test(location.href) && !/[?&]kiemban=1/.test(location.search)) return;   // chỉ bản thật (test bật bằng ?kiemban=1)
+  if (Date.now() - lanKiemBan < 60000) return; lanKiemBan = Date.now();
+  try {
+    const t = await (await fetch('index.html?ban=' + Date.now(), { cache: 'no-store' })).text();
+    const moi = (t.match(/const BAN = '([^']+)'/) || [])[1];
+    if (!moi || moi === BAN || document.getElementById('ban-moi')) return;
+    const n = document.createElement('button'); n.id = 'ban-moi'; n.type = 'button';
+    n.style.cssText = 'position:fixed;left:10px;right:10px;top:calc(8px + env(safe-area-inset-top));z-index:60;padding:12px;border:0;border-radius:12px;background:#d9480f;color:#fff;font-size:15px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.25)';
+    n.textContent = '🔄 Có bản mới ' + moi + ' (đang dùng ' + BAN + ') – chạm để cập nhật';
+    n.onclick = () => { location.replace(location.pathname + '?v=' + encodeURIComponent(moi) + (location.hash || '')); };
+    document.body.appendChild(n);
+  } catch (e) { /* mất mạng: lần sau kiểm lại */ }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) kiemBanMoi(); });
+setInterval(kiemBanMoi, 10 * 60000);
+setTimeout(kiemBanMoi, 3000);
 window.__appChay = true;   // dấu hiệu: mã app đã chạy hết (không bị dán thiếu)
 khoiDong();
 </script>
