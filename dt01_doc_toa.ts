@@ -6,7 +6,8 @@
 //   • Khoá API: Secret ANTHROPIC_API_KEY (đã có từ BG01). Đổi model: Secret AI_MODEL_TOA (vd claude-sonnet-5-5).
 // ═══════════════════════════════════════════════════════════════════
 
-const MODEL = Deno.env.get('AI_MODEL_TOA') ?? Deno.env.get('AI_MODEL') ?? 'claude-haiku-5-5';
+const MODEL = Deno.env.get('AI_MODEL_TOA') ?? Deno.env.get('AI_MODEL') ?? 'claude-haiku-5-5';            // đọc lần đầu (rẻ)
+const MODEL_MANH = Deno.env.get('AI_MODEL_TOA_MANH') ?? 'claude-sonnet-5-5';                                // "🔁 Đọc lại kỹ" khi tổng lệch
 const AI_URL = Deno.env.get('ANTHROPIC_URL') ?? 'https://api.anthropic.com/v1/messages';
 const SB_URL = Deno.env.get('SUPABASE_URL')!;
 const CORS = {
@@ -18,7 +19,8 @@ const json = (o: unknown, code = 200) => new Response(JSON.stringify(o), { statu
 
 // Hướng dẫn đọc toa. Gặp mẫu toa mới hay sai → bổ sung 1 dòng ở đây + ghi vào Bài học.
 const HUONG_DAN = `Bạn là kế toán kho của 1 tiệm tạp hoá ở Đà Nẵng. Đọc ảnh phiếu giao hàng / toa của nhà phân phối (NPP) và gọi công cụ tra_toa.
-Ảnh có thể nghiêng, xoay ngang, có bóng, có chữ viết tay. Nhiều ảnh = nhiều trang của CÙNG 1 toa.
+Ảnh có thể nghiêng, XOAY NGANG 90°, có bóng, có chữ viết tay. Nhiều ảnh = nhiều trang của CÙNG 1 toa.
+Ảnh xoay ngang: xoay lại cho đúng chiều rồi đọc theo từng HÀNG NGANG của bảng – mã, tên, thùng, lẻ, đơn giá, thành tiền của 1 dòng phải nằm cùng 1 hàng. Không lấy số của hàng trên/dưới.
 
 ĐỌC ĐÚNG NHƯ IN, KHÔNG TỰ TÍNH LẠI. Mỗi dòng hàng (kể cả dòng khuyến mãi) trả về:
 - ma: mã sản phẩm in trên toa (vd TPNDTOPET02, 04EI13, 02OM00771, 301000292); không có thì "".
@@ -30,6 +32,7 @@ const HUONG_DAN = `Bạn là kế toán kho của 1 tiệm tạp hoá ở Đà N
 - thung, le: số thùng và số lẻ (đơn vị nhỏ) ở cột "Thùng", "Lẻ". Toa chỉ có cột "SL" + ĐVT/Đơn vị "Thùng"/"T" → thung = SL, le = 0. Ô "-" hoặc trống = 0.
 - gia: đơn giá in trên toa; gia_theo: "thung" nếu là giá 1 thùng, "don_vi" nếu là giá 1 hộp/gói/chai (vd cột "Đơn giá Lẻ", hoặc đơn giá nhỏ hơn nhiều so với thành tiền/số thùng).
   Có 2 cột đơn giá trước VAT (T.VAT) và sau VAT (S.VAT) → lấy giá SAU VAT.
+  Toa chỉ có cột "Đơn giá Lẻ" (kiểu Masan) → đó là giá 1 gói/chai: gia = giá đó, gia_theo = "don_vi", và thành tiền = (thùng × qc + lẻ) × giá.
 - gia_le: giá 1 đơn vị lẻ nếu toa có cột riêng (vd "Giá lẻ"), không có → 0.
 - tt: thành tiền phải trả của dòng (lấy "Thành tiền sau CK" nếu có). Dòng khuyến mãi / tặng → 0.
 - ck: tiền chiết khấu riêng của dòng (cột "Tiền CK") nếu có, không có → 0.
@@ -39,10 +42,13 @@ const HUONG_DAN = `Bạn là kế toán kho của 1 tiệm tạp hoá ở Đà N
 - chac: 0–1 độ chắc chắn dòng này đọc đúng (ảnh mờ, bị gạch sửa → thấp).
 
 Toàn toa: so_toa (số hoá đơn / mã ĐH), ngay (YYYY-MM-DD), ncc_ten, tong_hang (tổng tiền hàng trước chiết khấu toa),
-ck_toa (tổng tiền chiết khấu / trả thưởng / giảm giá / tặng tiền CẢ TOA – số dương, không gồm CK đã trừ trong từng dòng),
+ck_toa (tổng tiền chiết khấu / trả thưởng / giảm giá / tặng tiền CẢ TOA – số dương, không gồm CK đã trừ trong từng dòng;
+  gồm mọi dòng như "Tiền chiết khấu hóa đơn", "Chiết khấu", "Tặng tiền trên hóa đơn", "Trả thưởng trưng bày", "Tổng tiền CK/Trả thưởng"),
 tong_phai_tra ("Tổng tiền phải trả" / "Tổng tiền thanh toán" / "Còn lại" IN trên toa), km_tong (tổng giá trị hàng KM nếu in), cuoc_vo (tiền cược vỏ nếu có).
 ghi_chu_tay: liệt kê NGUYÊN VĂN mọi chữ viết tay có ý nghĩa tiền / hàng (vd "Hỗ trợ 51 hộp NSPN XL 380g", "trừ 80k", số lượng bị gạch sửa "144 → 2"). Bỏ qua chữ ký, "Mai Mai", "CK", "đã giao".
-BỎ QUA: điểm tích luỹ, "Giá trị VC", số trang, mã QR. Không bịa dòng không có trên toa.`;
+BỎ QUA: điểm tích luỹ, "Giá trị VC", số trang, mã QR, các dòng tổng ("Tổng tiền hàng", "Tổng cộng", "Tổng số lượng") – không phải dòng hàng. Không bịa dòng không có trên toa.
+TỰ KIỂM TRƯỚC KHI TRẢ: mỗi dòng (thùng × giá thùng + lẻ × giá lẻ, hoặc (thùng × qc + lẻ) × giá đơn vị) − ck phải ≈ tt; và tổng tt các dòng không KM − ck_toa phải ≈ tong_phai_tra.
+Nếu lệch → nhìn lại ảnh, đọc lại các số cho đúng hàng rồi mới trả. Vẫn không khớp thì hạ chac của dòng nghi ngờ.`;
 
 const CONG_CU = {
   name: 'tra_toa', description: 'Trả nội dung toa nhà phân phối',
@@ -82,7 +88,8 @@ Deno.serve(async (req) => {
     if (!anh.length) return json({ loi: 'Chưa có ảnh toa' }, 400);
     if (!ds.trim()) return json({ loi: 'Chưa có danh mục hàng' }, 400);
 
-    id = await sql('ai_bat_dau', { p_tin: 'Toa ' + ncc, p_so_anh: anh.length, p_so_ung_vien: ds.split('\n').length, p_viec: 'doc_toa' });
+    const model = b.manh === true ? MODEL_MANH : MODEL;
+    id = await sql('ai_bat_dau', { p_tin: 'Toa ' + ncc + (b.manh === true ? ' (đọc kỹ)' : ''), p_so_anh: anh.length, p_so_ung_vien: ds.split('\n').length, p_viec: 'doc_toa' });
     const key = Deno.env.get('ANTHROPIC_API_KEY');
     if (!key) throw new Error('Chưa cài khoá AI (ANTHROPIC_API_KEY) trong Supabase → Edge Functions → Secrets');
 
@@ -93,7 +100,7 @@ Deno.serve(async (req) => {
     const r = await fetch(AI_URL, {
       method: 'POST',
       headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, max_tokens: 6000, system: HUONG_DAN, tools: [CONG_CU], tool_choice: { type: 'tool', name: 'tra_toa' }, messages: [{ role: 'user', content: noiDung }] }),
+      body: JSON.stringify({ model, max_tokens: 8000, system: HUONG_DAN, tools: [CONG_CU], tool_choice: { type: 'tool', name: 'tra_toa' }, messages: [{ role: 'user', content: noiDung }] }),
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error('AI báo lỗi ' + r.status + ': ' + ((j.error && j.error.message) || ''));
@@ -110,7 +117,7 @@ Deno.serve(async (req) => {
       ghi_chu_tay: (Array.isArray(tu.ghi_chu_tay) ? tu.ghi_chu_tay : []).map(String).slice(0, 10),
     };
     await sql('ai_ket_thuc', { p_id: id, p_ket_qua: kq, p_loi: null, p_token_vao: j.usage?.input_tokens ?? null, p_token_ra: j.usage?.output_tokens ?? null });
-    return json({ id, model: MODEL, ...kq });
+    return json({ id, model, ...kq });
   } catch (e) {
     const msg = String((e as Error).message || e);
     if (id) await sql('ai_ket_thuc', { p_id: id, p_ket_qua: null, p_loi: msg, p_token_vao: null, p_token_ra: null }).catch(() => {});
