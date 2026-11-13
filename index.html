@@ -24,6 +24,10 @@
 html,body{margin:0;background:var(--nen);color:var(--chu);font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer}
+/* iPHONE/iPAD: app bắt bấm ở cấp trang (document). Safari iOS KHÔNG báo lần chạm vào div/span thường lên trang
+   → dòng món (tab Hàng), mục tab Thêm, dòng khách/đơn/NCC chạm không ăn. Có cursor:pointer thì Safari mới coi là "bấm được".
+   MỌI phần tử có data-a phải có dòng này (test15 quét toàn app, thiếu là đỏ). */
+[data-a]{cursor:pointer;-webkit-tap-highlight-color:rgba(0,0,0,.08)}
 .an{display:none!important}
 
 /* Khung chính */
@@ -214,7 +218,7 @@ setTimeout(function () {
 
 // ── 1. CẤU HÌNH ──────────────────────────────────────────────────────
 // Số bản hiện ở cuối tab Thêm. MỖI LẦN ĐƯA BẢN MỚI LÊN PHẢI ĐỔI SỐ NÀY (để biết điện thoại đã nhận bản mới chưa).
-const BAN = '3.7';
+const BAN = '3.7.1';
 const CFG = {
   url: 'https://mrfwdmpdkhnhfblldzba.supabase.co',
   key: 'sb_publishable_92KnloG8NcjLUmpr92s6xw_7yPlsYJ3',  // khoá CÔNG KHAI – để ở đây là an toàn
