@@ -213,7 +213,7 @@ setTimeout(function () {
 
 // ── 1. CẤU HÌNH ──────────────────────────────────────────────────────
 // Số bản hiện ở cuối tab Thêm. MỖI LẦN ĐƯA BẢN MỚI LÊN PHẢI ĐỔI SỐ NÀY (để biết điện thoại đã nhận bản mới chưa).
-const BAN = '3.3';
+const BAN = '3.4';
 const CFG = {
   url: 'https://mrfwdmpdkhnhfblldzba.supabase.co',
   key: 'sb_publishable_92KnloG8NcjLUmpr92s6xw_7yPlsYJ3',  // khoá CÔNG KHAI – để ở đây là an toàn
@@ -223,9 +223,8 @@ const CFG = {
   //   1 chục Sài gòn (1.245.000) → 10 cây × 124.500 ; 1 chục thùng → 10 thùng.
   // Thêm tên khác (viết không dấu) nếu muốn, VD: ['chuc', 'loc']. Thùng không có ở đây nên vẫn là thùng.
   qcQuyDoi: ['chuc'],
-  // Đọc tin nhắn bằng AI: để trống = gọi qua Apps Script đang chạy app (Code.gs, hàm docTinNhan).
-  // Nếu đưa app lên Netlify thì dán link /exec của Apps Script vào đây.
-  // Mở app ở web riêng (GitHub Pages…) thì gọi AI qua link /exec của Apps Script này.
+  // Từ BG01 (bản 3.4): đọc tin nhắn Zalo dùng hàm Supabase "doc_don" (Claude Haiku), KHÔNG dùng link dưới nữa.
+  // Link Apps Script dưới chỉ còn dùng cho "AI đọc ảnh sổ giá" (tab Hàng).
   // (Mở app bằng chính link /exec thì tự dùng google.script.run, không cần dòng này.)
   urlAI: 'https://script.google.com/macros/s/AKfycbw0lovzA42ktbTWqOuCueemZ_iBKLX-p-H0RAK04pOlqNn9Y4nIWyJaCLrdO6J8yWQNZw/exec',
   soDonTamToiDa: 8,          // tối đa bao nhiêu đơn đang lên dở cùng lúc
@@ -1613,14 +1612,15 @@ function veViecTreo() {
 
 // ── 6b. DÁN TIN NHẮN / ẢNH ZALO → AI LÊN ĐƠN ────────────────────────
 // Luồng: dán tin và/hoặc chọn ảnh (chụp màn hình Zalo, giấy ghi đơn, hình sản phẩm khách gửi – tối đa 4)
-//        → gửi (tin + ảnh đã nén + danh mục hàng) cho Apps Script → Apps Script hỏi Gemini → trả về từng món
-//        → màn hình DUYỆT (sửa món / quy cách / số lượng) → bấm Thêm vào đơn.
-// AI chỉ GỢI Ý, không tự lưu đơn. Key Gemini nằm trong Apps Script, không nằm trong app.
+//        → app lọc trước ỨNG VIÊN (các món có thể khách nói tới) → gửi cho hàm Supabase "doc_don" → hàm hỏi Claude Haiku
+//        → trả về từng món (mã, quy cách, số lượng – KHÔNG có giá) → màn hình DUYỆT → bấm Thêm vào đơn (giá lấy từ bảng giá).
+// AI chỉ GỢI Ý, không tự lưu đơn, không tự gửi tin. Khoá AI nằm trong Supabase Secrets, không nằm trong app. (BG01, 13/11/2026)
 const AI_TOI_DA_ANH = 4;
 HD.aiMo = () => { S.ai = { tin: '', anh: [] }; moBang('🤖 Lên đơn từ tin nhắn / ảnh', veAI); setTimeout(() => { const t = $('#ai-tin'); if (t) t.focus(); }, 60); };
 function veAI() {
   const a = S.ai;
   if (!a.dong) return `<p class="mo">Dán tin nhắn đặt hàng, <b>hoặc</b> chọn ảnh: chụp màn hình Zalo, giấy ghi đơn, hình sản phẩm khách gửi. Có cả hai cũng được.</p>
+    <p class="mo" style="margin:0 0 6px">Khách gọi điện: bấm vào ô rồi bấm 🎤 trên bàn phím iPhone, đọc lại đơn. Tin thoại Zalo: nhấn giữ → "Chuyển thành văn bản" → copy.</p>
     <textarea class="o" id="ai-tin" rows="6" data-i="aiTin" placeholder="VD:&#10;chị Hoa lấy 2 thùng fami bịch&#10;sg the 1 chục, tiger bạc 1 thùng&#10;giao trước 5h">${esc(a.tin)}</textarea>
     ${veAnhAI(true)}
     <div class="hang-nut"><button class="nut" data-a="aiDan">📋 Dán</button>
@@ -1699,7 +1699,9 @@ HD.aiTim = async el => {
 };
 // Gọi AI: chạy trong Apps Script thì dùng google.script.run; còn lại gọi link /exec (hoặc máy giả lập khi chạy thử)
 function goiAI(goi, ham) {
-  ham = ham || 'docTinNhan'; goi = Object.assign({ viec: ham }, goi);
+  ham = ham || 'docTinNhan';
+  if (ham === 'docTinNhan') return goiDocDon(goi);
+  goi = Object.assign({ viec: ham }, goi);
   const gs = window.google && google.script && google.script.run;
   if (gs) return new Promise((ok, loi) => gs.withSuccessHandler(ok).withFailureHandler(e => loi(new Error((e && e.message) || String(e))))[ham](goi));
   const url = CFG.thu ? CFG.url + '/ai' : CFG.urlAI;
@@ -1708,13 +1710,41 @@ function goiAI(goi, ham) {
   return fetch(url, { method: 'POST', body: JSON.stringify(goi) }).then(r => r.json())
     .then(j => { if (j.loi) throw new Error(j.loi); return j; }, e => { throw new Error(e.message && /JSON/.test(e.message) ? 'Apps Script trả về lỗi' : dichLoi('Failed to fetch')); });
 }
+// BG01: gọi hàm Supabase "doc_don" bằng phiên đăng nhập (chưa đăng nhập = bị chặn). Lỗi trả về {loi}.
+async function goiDocDon(goi) {
+  let r;
+  try {
+    r = await fetch(CFG.url + '/functions/v1/doc_don', { method: 'POST',
+      headers: { apikey: CFG.key, Authorization: 'Bearer ' + phien.access_token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tin: goi.tin, anh: goi.anh, ds: goi.ds }) });
+  } catch (e) { throw new Error(dichLoi('Failed to fetch') + ' – AI cần mạng, lên đơn tay vẫn được'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.loi) throw new Error(j.loi || j.message || ('AI lỗi ' + r.status));
+  return j;
+}
+// Lọc trước các món khách CÓ THỂ nói tới → gửi AI ít món (rẻ + nhanh + ít nhầm).
+// Mỗi dòng / mỗi đoạn tin lấy tối đa 20 món khớp nhiều chữ nhất. Có ảnh, hoặc lọc không ra món nào → gửi cả danh mục.
+const AI_TU_BO = new Set(('cho em anh chi lay them nhe nha va voi giao giup minh toi ban oi ak ah cai con nua mua dat gui roi nhanh sang chieu mai hom nay ' +
+  'khach quan co ko khong nhieu it gia thung loc goi ket chai lon bich hop kg chuc cay tui hu vi loai nhu tren duoi').split(' '));
+function ungVienAI(tin, coAnh) {
+  if (coAnh || !tin) return null;
+  const doan = boDau(tin).split(/[\n,;+]|\bva\b|\bvoi\b/).map(x => x.trim()).filter(Boolean), chon = new Set();
+  doan.forEach(d => {
+    const tu = [...new Set(d.split(/[^a-z0-9]+/).filter(t => t.length >= 2 && !/^\d+$/.test(t) && !AI_TU_BO.has(t)))];
+    if (!tu.length) return;
+    const kq = [];
+    S.hang.forEach(h => { let n = 0; tu.forEach(t => { if (h._t.includes(t)) n++; }); if (n) kq.push([n + (h.gia.length ? 0.1 : 0), h]); });
+    kq.sort((a, b) => b[0] - a[0]); kq.slice(0, 20).forEach(x => chon.add(x[1]));
+  });
+  return chon.size ? [...chon].slice(0, 300) : null;
+}
 HD.aiDoc = async el => {
   const tin = (S.ai.tin || '').trim(), dsAnh = S.ai.anh || [];
   if (!tin && !dsAnh.length) return thongBao('Chưa dán tin nhắn hoặc chọn ảnh', 'loi');
   if (!S.hang.length) return thongBao(S.hangLuc ? 'Chưa có mặt hàng nào – thêm hàng trước' : 'Chưa tải xong danh mục hàng', 'loi');
   if (phien.expires_at - 120 < Date.now() / 1000) await lamMoiPhien();   // Apps Script cần token còn hạn để kiểm tra
-  // Danh mục gửi cho AI: mã|tên|các quy cách có giá
-  const ds = S.hang.map(h => h.id + '|' + h.ten + '|' + (h.gia.map(g => g.qc).join(',') || h.dv)).join('\n');
+  // Danh mục gửi cho AI: mã|tên|các quy cách có giá (chỉ ứng viên; có ảnh thì cả danh mục)
+  const ds = (ungVienAI(tin, dsAnh.length) || S.hang).map(h => h.id + '|' + h.ten + '|' + (h.gia.map(g => g.qc).join(',') || h.dv)).join('\n');
   // Ảnh: nén (cạnh dài ≤ 2000px) rồi đổi base64 – chữ trong ảnh chụp màn hình vẫn rõ, gửi nhanh
   const kq = await chay(el, dsAnh.length ? '🤖 Đang đọc ảnh… (10–40 giây)' : '🤖 Đang đọc… (5–15 giây)', async () => {
     const anh = dsAnh.length ? await Promise.all(dsAnh.map(x => nenAnh(x.f).then(sangBase64))) : undefined;
@@ -1726,6 +1756,7 @@ HD.aiDoc = async el => {
     return { goc: d.goc || '', id: h ? h.id : '', qc: qcHopLe(h, d.qc), sl: Number(d.sl) > 0 ? Number(d.sl) : 1,
              chac: h ? Number(d.chac) || 0 : 0, khac: (d.khac || []).filter(x => x !== d.id && timHang(x)), chon: !!h };
   });
+  a.idLog = kq.id || null; a.dong.forEach(d => { d.ai0 = { id: d.id, qc: d.qc, sl: d.sl }; });   // để đếm AI đúng / sửa tay
   a.ghi_chu = (kq.ghi_chu || '').trim(); a.gcChon = !!a.ghi_chu;
   // Tên khách trong tin: khớp đúng 1 khách cũ thì chọn sẵn, không thì gợi ý khách mới (mặc định không chọn)
   const ten = (kq.ten_khach || '').trim(); a.kh = null;
@@ -1750,6 +1781,9 @@ HD.aiThem = () => {
     if (doi) themVaoGio(h, doi.qc, doi.qd, doi.gia, doi.gia, doi.n * d.sl, false, { qc: gg.qc, n: doi.n });
     else themVaoGio(h, gg.qc, gg.qd, gg.g, gg.g, d.sl);
   });
+  // Đếm: món AI đọc đúng (giữ nguyên món + quy cách + số lượng) / món phải sửa, bỏ, hoặc AI không tìm ra
+  if (a.idLog) { const dung = a.dong.filter(d => d.chon && d.ai0 && d.ai0.id && d.id === d.ai0.id && d.qc === d.ai0.qc && d.sl === d.ai0.sl).length;
+    rpc('ai_ghi_ket_qua', { p_id: a.idLog, p_dung: dung, p_sua: a.dong.length - dung }).catch(() => {}); }
   luuGio(); S.bangs = []; veBang(); S.tab = 'ban'; S.tim = ''; veKhung();
   if (g.dong.length) moBang('Đơn hàng', veGio);
   if (boQua.length) thongBao('Chưa có giá, thêm tay: ' + boQua.join(', '), 'loi');
@@ -2436,6 +2470,9 @@ HD.chotSo = el => chay(el, '…', async () => { S.cs = { ngay: ngayVN(0) }; awai
 async function taiChotSo() {
   const [t, ls, han] = await Promise.all([rpc('tinh_chot_so', { p_ngay: S.cs.ngay }), api('chot_so?select=*&order=ngay.desc&limit=14'),
     api('v_ncc_han_no?select=id,ten,qua_han,con_no&qua_han=gte.0&order=qua_han.desc').catch(() => [])]);
+  // BG01: AI đọc đơn trong ngày (để đo mục tiêu bớt giờ). Lỗi/chưa nâng cấp → bỏ qua.
+  const dau = encodeURIComponent(S.cs.ngay + 'T00:00:00+07:00'), sau = encodeURIComponent(new Date(new Date(S.cs.ngay + 'T00:00:00+07:00').getTime() + 864e5).toISOString());
+  S.cs.ai = await api('ai_doc_don?select=da_dung,so_dong_dung,so_dong_sua,token_vao,token_ra,loi&tao_luc=gte.' + dau + '&tao_luc=lt.' + sau).catch(() => []);
   S.cs.t = t; S.cs.ls = ls; S.cs.nccHan = han; S.cs.quy = t.da_chot ? t.da_chot.quy_dau : t.quy_dau; S.cs.dem = ''; S.cs.rut = '';
 }
 const phaiCo = () => (Number(S.cs.quy) || 0) + Number(S.cs.t.thu_tm) - Number(S.cs.t.chi_tm);
@@ -2461,6 +2498,7 @@ function veChotSo() {
       ${Number(t.tru_doi_thuong) ? `<div class="tong-dong mo"><span>Đổi thưởng nắp (trừ vào đơn)</span><span class="tien">${tien(t.tru_doi_thuong)}</span></div>` : ''}
       ${t.cho_giao ? `<div class="tong-dong"><span class="no">🚚 Đơn chưa giao (mọi ngày)</span><span class="no">${t.cho_giao}</span></div>` : ''}
       ${(g.nccHan || []).length ? `<div class="tong-dong"><span class="no">⏱ NCC tới/quá hạn trả: ${g.nccHan.map(x => esc(x.ten) + ' ' + tien(x.con_no)).join(', ')}</span><button class="gia-sua" data-a="nccDs">${g.nccHan.length} NCC ›</button></div>` : ''}
+      ${veAIChotSo(g.ai)}
       ${t.cho_kiem_tra ? `<div class="tong-dong"><span class="no">⏳ Hàng trả chờ chủ kiểm tra</span><button class="gia-sua" data-a="vtDs">${t.cho_kiem_tra} việc ›</button></div>` : ''}</div>
     <label class="nhan">Tiền mặt đếm được trong két</label>
     <input class="o" inputmode="decimal" data-i="csDem" value="${esc(g.dem)}" placeholder="VD 2350k hoặc 2.350.000">
@@ -2472,6 +2510,14 @@ function veChotSo() {
     ${g.ls.length ? `<h3>Các lần chốt gần đây</h3><div class="the ds">${g.ls.map(x => `<div class="muc dong"><span class="gian"><b>${phanNgay(x.ngay + 'T12:00:00+07:00').d}/${phanNgay(x.ngay + 'T12:00:00+07:00').m}</b>
       <span class="mo"> · phải có ${tien(x.phai_co)} · đếm ${tien(x.dem_thuc)}</span><br><span class="mo">để lại ${tien(x.de_lai)}${x.ghi_chu ? ' · ' + esc(x.ghi_chu) : ''}</span></span>
       ${veLech(x.lech)}</div>`).join('')}</div>` : ''}`;
+}
+// "🤖 AI đọc đơn: 12 lượt · 30 món đúng / 4 sửa tay · ≈ 300đ". Tiền ước: Haiku $0,10 / $0,50 mỗi 1 triệu token, 1$ ≈ 26.000đ
+function veAIChotSo(ds) {
+  if (!ds || !ds.length) return '';
+  const cong = k => ds.reduce((s, x) => s + (Number(x[k]) || 0), 0);
+  const dong = Math.round((cong('token_vao') * 0.10 + cong('token_ra') * 0.50) / 1e6 * 26000);
+  const loi = ds.filter(x => x.loi).length;
+  return `<div class="tong-dong mo"><span>🤖 AI đọc đơn: ${ds.length} lượt · ${cong('so_dong_dung')} món đúng / ${cong('so_dong_sua')} sửa tay${loi ? ' · ' + loi + ' lỗi' : ''}</span><span>≈ ${tien(dong)}</span></div>`;
 }
 const veLech = n => (n = Number(n)) === 0 ? '<b style="color:var(--chinh)">Khớp ✓</b>' : n > 0 ? `<b style="color:var(--vang)">Thừa ${tien(n)}</b>` : `<b class="no">Thiếu ${tien(-n)}</b>`;
 DOI.csNgay = async el => { S.cs.ngay = el.value || ngayVN(0); try { await taiChotSo(); veBang(); } catch (e) { thongBao(e.message, 'loi'); } };
