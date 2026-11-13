@@ -110,7 +110,12 @@ Deno.serve(async (req) => {
     let r = await hoiAI({ type: 'tool', name: 'tra_toa' });
     let j = await r.json().catch(() => ({}));
     if (r.status === 400 && /tool_choice/.test((j.error && j.error.message) || '')) { r = await hoiAI(null); j = await r.json().catch(() => ({})); }
-    if (!r.ok) throw new Error('AI báo lỗi ' + r.status + ': ' + ((j.error && j.error.message) || ''));
+    if (!r.ok) {
+      const m = (j.error && j.error.message) || '';
+      // Hết tiền tài khoản Claude API → nói tiếng Việt cho nhân viên hiểu
+      if (/credit balance|billing|insufficient/i.test(m)) throw new Error('Hết tiền dùng AI – báo anh Tâm nạp thêm (console.anthropic.com → Billing). Tạm nhập tay giúp em.');
+      throw new Error('AI báo lỗi ' + r.status + ': ' + m);
+    }
     // Hết chỗ trả lời giữa chừng → kết quả bị cắt cụt (thường ra 0 dòng): báo rõ thay vì trả toa rỗng
     if (j.stop_reason === 'max_tokens') throw new Error('Toa dài quá, AI chưa đọc xong – chụp lại thẳng, rõ (hoặc chia 2 ảnh) rồi đọc lại');
     const tuDung = (j.content || []).find((c: { type: string }) => c.type === 'tool_use');

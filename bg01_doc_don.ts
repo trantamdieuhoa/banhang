@@ -97,7 +97,12 @@ Deno.serve(async (req) => {
       body: JSON.stringify({ model: MODEL, max_tokens: 2000, system: HUONG_DAN, tools: [CONG_CU], tool_choice: { type: 'tool', name: 'tra_don' }, messages: [{ role: 'user', content: noiDung }] }),
     });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error('AI báo lỗi ' + r.status + ': ' + ((j.error && j.error.message) || ''));
+    if (!r.ok) {
+      const m = (j.error && j.error.message) || '';
+      // Hết tiền tài khoản Claude API → nói tiếng Việt cho nhân viên hiểu
+      if (/credit balance|billing|insufficient/i.test(m)) throw new Error('Hết tiền dùng AI – báo anh Tâm nạp thêm (console.anthropic.com → Billing). Tạm nhập tay giúp em.');
+      throw new Error('AI báo lỗi ' + r.status + ': ' + m);
+    }
     const tu = ((j.content || []).find((c: { type: string }) => c.type === 'tool_use') || {}).input || {};
     // Làm sạch kết quả: chỉ giữ đúng các trường cần, số lượng > 0, độ chắc 0–1
     const kq = {
