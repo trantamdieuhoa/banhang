@@ -213,7 +213,7 @@ setTimeout(function () {
 
 // ── 1. CẤU HÌNH ──────────────────────────────────────────────────────
 // Số bản hiện ở cuối tab Thêm. MỖI LẦN ĐƯA BẢN MỚI LÊN PHẢI ĐỔI SỐ NÀY (để biết điện thoại đã nhận bản mới chưa).
-const BAN = '3.5';
+const BAN = '3.6';
 const CFG = {
   url: 'https://mrfwdmpdkhnhfblldzba.supabase.co',
   key: 'sb_publishable_92KnloG8NcjLUmpr92s6xw_7yPlsYJ3',  // khoá CÔNG KHAI – để ở đây là an toàn
@@ -3092,6 +3092,8 @@ async function layHang(id) {
   if (!r[0]) throw new Error('Không tìm thấy mặt hàng ' + id);
   const h = r[0];
   h.gia = h.bang_gia.filter(g => g.dang_ap_dung).sort((a, b) => a.so_luong_quy_doi - b.so_luong_quy_doi);
+  // GV01: giá nhập lần cuối theo từng NCC – chủ + NV có quyền nhập toa
+  h.gnn = coQuyen('nhap_toa') ? await api('v_gia_nhap_ncc?select=*&hang_hoa_id=eq.' + encodeURIComponent(id) + '&order=gia_dv').catch(() => null) : null;
   return h;
 }
 async function moChiTietHang(id) {
@@ -3114,8 +3116,9 @@ function veChiTietHang(h) {
       ${h.gia.map(g => `<div class="tong-dong"><span>${esc(g.qc || g.quy_cach)}${g.so_luong_quy_doi > 1 ? ` <span class="mo">(${so(g.so_luong_quy_doi)} ${esc(h.don_vi)})</span>` : ''}</span>
         <span><b class="tien">${tien(g.gia_ban)}</b>${g.so_luong_quy_doi > 1 ? `<br><span class="mo tien">${tien(g.gia_ban / g.so_luong_quy_doi)}/${esc(h.don_vi)}</span>` : ''}</span></div>`).join('')
         || '<p class="mo">Chưa có giá.</p>'}
-      ${h.gia_von ? `<div class="tong-dong mo" style="border-top:1px dashed var(--vien);margin-top:6px;padding-top:8px"><span>Giá vốn / ${esc(h.don_vi)}</span><span class="tien">${tien(h.gia_von)}</span></div>
+      ${h.gia_von ? `<div class="tong-dong mo" style="border-top:1px dashed var(--vien);margin-top:6px;padding-top:8px"><span>Giá vốn / ${esc(h.don_vi)} ${h.ton_kho != null ? '(bình quân)' : '(lần nhập gần nhất)'}</span><span class="tien">${tien(h.gia_von)}</span></div>
         ${h.gia.length ? `<div class="tong-dong mo"><span>Lãi / ${esc(h.don_vi)} (giá lẻ nhất)</span><span class="tien">${tien(h.gia[0].gia_ban / h.gia[0].so_luong_quy_doi - h.gia_von)}</span></div>` : ''}` : ''}</div>
+    ${h.gnn ? `<div class="the"><h3>Giá nhập theo NCC</h3>${veGiaNhapNcc(h)}</div>` : ''}
     <div class="the"><h3>Tồn kho${h.ton_kho != null ? ' <span class="the-nhan xanh">⭐ chủ lực</span>' : ''}</h3>
       ${h.ton_kho == null ? '<p class="mo" style="margin:0">Không theo dõi tồn kho mặt hàng này. Món bán nhiều nên bật theo dõi để biết lúc sắp hết.</p>'
         : `<div class="so-lon ${h.ton_kho <= (h.ton_toi_thieu || 0) ? 'no' : ''}">${so(h.ton_kho)} ${esc(h.don_vi)}</div>
@@ -3133,6 +3136,17 @@ function veChiTietHang(h) {
         : coQuyen('doi_gia_ban') && h.gia.length ? `<button class="nut" data-a="suaGiaNV" data-id="${esc(h.id)}">✎ Sửa giá</button>` : ''}
       ${chu ? `<button class="nut ${h.dang_ban ? 'do' : ''}" data-a="batTatBan">${h.dang_ban ? 'Ngừng bán' : 'Bán lại'}</button>` : ''}
     </div>`;
+}
+// Mỗi NCC 1 dòng: giá lần cuối (quy ra đơn vị nhỏ nhất), ngày nhập, số lần. NCC đang hợp tác rẻ nhất (giá ≤ 60 ngày) có nhãn 💰.
+function veGiaNhapNcc(h) {
+  const ds = h.gnn || []; if (!ds.length) return '<p class="mo" style="margin:0">Chưa có toa nào ghi giá nhập món này.</p>';
+  const cu = x => soNgayTruoc(x.ngay) > 60;
+  const ung = ds.filter(x => x.dang_hop_tac && !cu(x)), re = ung.length > 1 ? ung.reduce((a, b) => Number(b.gia_dv) < Number(a.gia_dv) ? b : a) : null;
+  return ds.map(x => `<div class="dong" style="margin-top:8px;${cu(x) || !x.dang_hop_tac ? 'opacity:.6' : ''}">
+      <div class="gian" data-a="nccMo" data-id="${esc(x.ncc_id)}"><b>${esc(x.ncc_ten)}</b>${re && re.ncc_id === x.ncc_id ? ' <span class="the-nhan xanh">💰 rẻ nhất</span>' : ''}${x.dang_hop_tac ? '' : ' <span class="the-nhan">ngừng hợp tác</span>'}<br>
+        <span class="mo">${esc(x.quy_cach)} ${tien(x.don_gia_nhap)} · ${ngayNgan(x.ngay)} (${soNgayTruoc(x.ngay)} ngày trước)${cu(x) ? ' · có thể đã đổi' : ''} · ${x.so_lan} lần</span></div>
+      <b class="tien">${tien(x.gia_dv)}<span class="mo" style="font-weight:400">/${esc(h.don_vi)}</span></b></div>`).join('')
+    + (re ? `<p class="mo" style="margin:8px 0 0">So với giá đắt nhất: rẻ hơn ${tien(Math.max(...ung.map(x => Number(x.gia_dv))) - Number(re.gia_dv))}/${esc(h.don_vi)}. Bấm tên NCC để gọi / Zalo đặt hàng.</p>` : '');
 }
 // "50 hộp" → "= 2 thùng 2 hộp" cho dễ hình dung
 function tonTheoQC(h) {
@@ -3356,9 +3370,21 @@ HD.nccTra = async () => {
   });
   thongBao('Đã ghi trả ' + tien(v.tien), 'tot'); await taiLaiNcc();
 };
+// GV01: món trong toa này mà sau đó đã nhập ở toa khác (dòng toa id lớn hơn) → huỷ / sửa toa này không tự tính lại giá vốn
+async function monCoToaMoiHon(id) {
+  const ct = await api('phieu_nhap_ct?select=id,hang_hoa_id,ten_hang&phieu_nhap_id=eq.' + encodeURIComponent(id));
+  if (!ct.length) return [];
+  const cuoi = {}; ct.forEach(c => { cuoi[c.hang_hoa_id] = Math.max(cuoi[c.hang_hoa_id] || 0, c.id); });
+  const sau = await api('phieu_nhap_ct?select=id,hang_hoa_id,phieu_nhap!inner(trang_thai)&phieu_nhap.trang_thai=eq.hoan_tat&id=gt.' + Math.min(...ct.map(c => c.id))
+    + '&hang_hoa_id=in.(' + Object.keys(cuoi).map(encodeURIComponent).join(',') + ')');
+  const co = new Set(sau.filter(x => x.id > cuoi[x.hang_hoa_id] && !ct.some(c => c.id === x.id)).map(x => x.hang_hoa_id));
+  return [...new Set(ct.filter(c => co.has(c.hang_hoa_id)).map(c => c.ten_hang))];
+}
 HD.toaHuy = async el => {
   if (!await xacNhan('Huỷ toa ' + el.dataset.id + '? Khoản trả kèm toa (nếu có) cũng bị xoá, nợ NCC tính lại.', 'Huỷ toa')) return;
-  await rpc('huy_phieu_nhap', { p_id: el.dataset.id }); thongBao('Đã huỷ toa', 'tot'); await taiLaiNcc();
+  const giu = await monCoToaMoiHon(el.dataset.id).catch(() => []);
+  await rpc('huy_phieu_nhap', { p_id: el.dataset.id });
+  thongBao('Đã huỷ toa' + (giu.length ? '. ⚠ Giá vốn GIỮ NGUYÊN (đã có toa mới hơn): ' + giu.join(', ') + ' – kiểm lại ở trang món' : ''), giu.length ? 'loi' : 'tot'); await taiLaiNcc();
 };
 HD.nccTraHuy = async el => {
   if (!await xacNhan('Huỷ khoản trả này? (dùng khi ghi nhầm)', 'Huỷ')) return;
@@ -3433,7 +3459,11 @@ function veDuyetToa() {
       <p class="mo" style="margin:6px 0 0">✔ = lưu. Viền vàng = AI không chắc hoặc SL × giá ≠ thành tiền trên toa. Giá là giá nhập <b>1 quy cách trên toa</b>.
         Lưu xong: <b>giá vốn</b> mọi món được cập nhật, món <b>⭐ chủ lực</b> được cộng tồn.</p></div>
     ${t.dong.map((d, i) => { const h = d.id && timHang(d.id), yeu = !h || d.chac < 0.8 || lechDong(d);
-      const gvMoi = d.gia > 0 ? Math.round(d.gia / (d.qd || 1)) : 0, gvCu = d.id ? (d.gvCu != null && t.sua ? Number(d.gvCu) : t.gv[d.id]) : null;
+      const gvCu = d.id ? (d.gvCu != null && t.sua ? Number(d.gvCu) : t.gv[d.id]) : null, gvNhap = d.gia > 0 ? Math.round(d.gia / (d.qd || 1)) : 0;
+      // GV01: món chủ lực → giá vốn BÌNH QUÂN = (tồn trước × vốn cũ + số nhập × giá nhập) ÷ tổng. Tồn trước = số đếm (nếu gõ) hoặc tồn đang ghi.
+      const theoDoi = !!(h && h.ton != null), tonTruoc = theoDoi ? (d.demSl != null ? d.demSl : Number(h.ton)) : 0;
+      const gvMoi = theoDoi && !t.sua && gvCu > 0 && tonTruoc > 0 && (gvNhap > 0 || d.tang)
+        ? Math.round((tonTruoc * gvCu + d.sl * d.qd * gvNhap) / (tonTruoc + d.sl * d.qd)) : gvNhap;
       return `<div class="the" style="padding:10px 12px;${yeu && d.chon ? 'border:1px solid var(--vang)' : ''}${d.chon ? '' : ';opacity:.6'}">
         <div class="dong" style="gap:8px"><input type="checkbox" data-d="toaChon" data-idx="${i}" ${d.chon ? 'checked' : ''} style="width:20px;height:20px">
           <span class="gian">${h ? `<b>${esc(h.ten)}</b>` : d.ten ? `<b>${esc(d.ten)}</b>` : '<span class="no">Chưa khớp món nào – bấm 🔍</span>'}
@@ -3445,7 +3475,11 @@ function veDuyetToa() {
           <label style="flex:2"><span class="mo" style="font-size:11px">= ${h ? esc(h.dv) : 'đv'}</span><input class="o" style="text-align:center" value="${so(d.qd)}" inputmode="decimal" data-d="toaQd" data-idx="${i}"></label>
           <label style="flex:2"><span class="mo" style="font-size:11px">SL</span><input class="o" style="text-align:center" value="${d.sl ? so(d.sl) : ''}" inputmode="decimal" data-d="toaSl" data-idx="${i}"></label>
           <label style="flex:4"><span class="mo" style="font-size:11px">Giá nhập</span><input class="o" style="text-align:right" value="${d.gia ? so(d.gia) : ''}" inputmode="decimal" data-d="toaGia" data-idx="${i}"></label></div>
-        <div class="tong-dong mo" style="margin-top:4px"><span>${gvMoi && h ? `Giá vốn/${esc(h.dv)}: ${gvCu ? tien(gvCu) + ' → ' : ''}<b class="${gvCu && gvMoi > gvCu ? 'no' : ''}">${tien(gvMoi)}</b>${gvCu && gvMoi > gvCu ? ' ▲' + so(Math.round((gvMoi / gvCu - 1) * 1000) / 10) + '%' : ''}` : ''}</span>
+        ${theoDoi && !t.sua ? `<label style="display:block;margin-top:6px"><span class="mo" style="font-size:11px">Đếm còn lại trước khi nhập (không bắt buộc) · đang ghi: <b>${esc(tonChu(Number(h.ton), h))}</b></span>
+          <input class="o" value="${esc(d.dem || '')}" placeholder="vd 1t5 = 1 thùng 5 · 35 = 35 ${esc(h.dv)}" data-d="toaDem" data-idx="${i}"></label>
+          ${d.demLoi ? `<span class="no" style="font-size:13px">${esc(d.demLoi)}</span>` : d.demSl != null ? `<span class="mo" style="font-size:13px">= ${esc(tonChu(d.demSl, h))} → app sửa tồn về số này rồi mới cộng toa</span>` : ''}` : ''}
+        ${!d.gia && h ? `<label class="dong mo" style="gap:6px;margin-top:6px;font-size:13px"><input type="checkbox" data-d="toaTang" data-idx="${i}" ${d.tang ? 'checked' : ''} style="width:18px;height:18px"> 🎁 Hàng tặng 0đ (tính vào giá vốn bình quân)</label>` : ''}
+        <div class="tong-dong mo" style="margin-top:4px"><span>${gvMoi && h ? `Giá vốn/${esc(h.dv)}${theoDoi && !t.sua && gvCu > 0 && tonTruoc > 0 ? ' (bình quân)' : ''}: ${gvCu ? tien(gvCu) + ' → ' : ''}<b class="${gvCu && gvMoi > gvCu ? 'no' : ''}">${tien(gvMoi)}</b>${gvCu && gvMoi > gvCu ? ' ▲' + so(Math.round((gvMoi / gvCu - 1) * 1000) / 10) + '%' : ''}` : ''}</span>
           <span class="tien">${tien(ttDong(d))}${lechDong(d) ? `<br><span class="no">toa ghi ${tien(d.tt)}</span>` : ''}</span></div></div>`; }).join('')}
     <datalist id="dl-qc-toa">${['thùng', 'két', 'lốc', 'bao', 'hộp', 'gói', 'chai', 'lon', 'cây', 'chục', 'bịch', 'kg'].map(x => `<option value="${x}">`).join('')}</datalist>
     <button class="nut" style="width:100%;margin-bottom:8px" data-a="toaThemDong">＋ Thêm dòng (món AI bỏ sót)</button>
@@ -3458,6 +3492,10 @@ DOI.toaQc = el => { const d = dongToa(el); d.qc = el.value.trim(); const h = tim
 DOI.toaQd = el => { dongToa(el).qd = docSo(el.value) || 1; veBang(); };
 DOI.toaSl = el => { dongToa(el).sl = docSo(el.value); veBang(); };
 DOI.toaGia = el => { dongToa(el).gia = docTien(el.value); veBang(); };
+// Ô "Đếm còn lại": gõ kiểu kiểm kho (1t5, 5 thùng 7, 127) → đổi ra đơn vị nhỏ nhất
+DOI.toaDem = el => { const d = dongToa(el), h = timHang(d.id); d.dem = el.value.trim(); d.demLoi = ''; d.demSl = null;
+  if (d.dem) { const r = docSoDem(d.dem, h); if (r && r.loi) d.demLoi = r.loi; else if (r) d.demSl = r.sl; } veBang(); };
+DOI.toaTang = el => { dongToa(el).tang = el.checked; veBang(); };
 HD.toaTim = async el => {
   const d = S.toa.dong[+el.dataset.i], id = await timChonMon('Món nào: “' + (d.goc || d.ten || '') + '”'); if (!id) return;
   Object.assign(d, chuanDongToa({ goc: d.goc, id, qc: d.qc, qd: d.qd, sl: d.sl, gia: d.gia, tt: d.tt, chac: 1 }), { chon: d.sl > 0 });
@@ -3471,13 +3509,16 @@ HD.toaThemDong = async () => {
 };
 HD.toaLuu = el => chay(el, 'Đang lưu…', async () => {
   const t = S.toa, ds = t.dong.filter(d => d.chon && d.id && d.sl > 0);
-  const khongGia = ds.filter(d => !d.gia);
+  const demLoi = ds.find(d => d.demLoi); if (demLoi) return thongBao(timHang(demLoi.id).ten + ': số đếm còn lại ' + demLoi.demLoi, 'loi');
+  const khongGia = ds.filter(d => !d.gia && !d.tang);
   if (khongGia.length && !await xacNhan(khongGia.length + ' dòng chưa có giá nhập (VD ' + timHang(khongGia[0].id).ten + ') – các món này giữ giá vốn cũ. Vẫn lưu?', 'Vẫn lưu')) return;
   const re = ds.filter(d => d.gia > 0 && d.gia < 1000);
   if (re.length && !await xacNhan(re.length + ' giá nhập dưới 1.000đ (VD ' + timHang(re[0].id).ten + ' ' + tien(re[0].gia) + '). Đúng chưa?', 'Đúng, lưu')) return;
-  const kq = await rpc('luu_ct_toa', { p_id: t.toa.id, p_items: ds.map(d => ({ hang_hoa_id: d.id, quy_cach: d.qc, so_luong_quy_doi: d.qd, so_luong: d.sl, don_gia_nhap: d.gia })) });
+  const kq = await rpc('luu_ct_toa', { p_id: t.toa.id, p_items: ds.map(d => ({ hang_hoa_id: d.id, quy_cach: d.qc, so_luong_quy_doi: d.qd, so_luong: d.sl, don_gia_nhap: d.gia,
+    dem_con: t.sua ? null : d.demSl, tang: !!d.tang })) });
   S.bangs.pop(); veBang();
-  thongBao('Đã lưu ' + kq.so_dong + ' dòng · giá vốn cập nhật' + (kq.cong_ton ? ' · cộng tồn ' + kq.cong_ton + ' món chủ lực' : ''), 'tot');
+  thongBao('Đã lưu ' + kq.so_dong + ' dòng · giá vốn cập nhật' + (kq.cong_ton ? ' · cộng tồn ' + kq.cong_ton + ' món chủ lực' : '')
+    + ((kq.gv_giu || []).length ? '. ⚠ Giá vốn GIỮ NGUYÊN (đã có toa mới hơn): ' + kq.gv_giu.join(', ') + ' – kiểm lại ở trang món' : ''), (kq.gv_giu || []).length ? 'loi' : 'tot');
   taiHang(true).catch(() => {}); if (nccDangMo() && nccDangMo().id === t.n.id) await taiLaiNcc();
   if (kq.tang && kq.tang.length) moGoiYGia(kq.tang);
 });
