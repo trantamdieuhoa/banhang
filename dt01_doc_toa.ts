@@ -103,13 +103,16 @@ Deno.serve(async (req) => {
     const hoiAI = (tc: unknown) => fetch(AI_URL, {
       method: 'POST',
       headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model, max_tokens: 8000, system: HUONG_DAN + (tc ? '' : '\nBẮT BUỘC trả lời bằng cách gọi công cụ tra_toa (không viết chữ).'),
+      body: JSON.stringify({ model, max_tokens: b.manh === true ? 16000 : 8000,   // đọc kỹ: model mạnh hay viết dài hơn → cho nhiều chỗ hơn
+        system: HUONG_DAN + (tc ? '' : '\nBẮT BUỘC trả lời bằng cách gọi công cụ tra_toa (không viết chữ).'),
         tools: [CONG_CU], ...(tc ? { tool_choice: tc } : {}), messages: [{ role: 'user', content: noiDung }] }),
     });
     let r = await hoiAI({ type: 'tool', name: 'tra_toa' });
     let j = await r.json().catch(() => ({}));
     if (r.status === 400 && /tool_choice/.test((j.error && j.error.message) || '')) { r = await hoiAI(null); j = await r.json().catch(() => ({})); }
     if (!r.ok) throw new Error('AI báo lỗi ' + r.status + ': ' + ((j.error && j.error.message) || ''));
+    // Hết chỗ trả lời giữa chừng → kết quả bị cắt cụt (thường ra 0 dòng): báo rõ thay vì trả toa rỗng
+    if (j.stop_reason === 'max_tokens') throw new Error('Toa dài quá, AI chưa đọc xong – chụp lại thẳng, rõ (hoặc chia 2 ảnh) rồi đọc lại');
     const tuDung = (j.content || []).find((c: { type: string }) => c.type === 'tool_use');
     if (!tuDung) throw new Error('AI không trả kết quả đúng dạng – thử lại');
     const tu = tuDung.input || {};
