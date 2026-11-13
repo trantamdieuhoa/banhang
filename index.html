@@ -112,7 +112,8 @@ a.nut{text-decoration:none;color:inherit}
 .tong-dong.lon{font-size:19px;font-weight:700;border-top:1px dashed var(--vien);margin-top:6px;padding-top:10px}
 
 /* Bảng trượt từ dưới lên */
-#man-che{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+/* KHÔNG dùng "inset:0": Safari iPad cũ (< iPadOS 14.5) không hiểu → lớp che co lại góc trái dưới */
+#man-che{position:fixed;top:0;right:0;bottom:0;left:0;background:rgba(0,0,0,.4);z-index:20;display:flex;align-items:flex-end;justify-content:center}
 #bang{background:var(--nen);width:100%;max-width:640px;max-height:92vh;border-radius:16px 16px 0 0;display:flex;flex-direction:column}
 #bang .dau-bang{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--vien);background:var(--the);border-radius:16px 16px 0 0}
 #bang .dau-bang b{flex:1;font-size:16px}
@@ -133,7 +134,7 @@ a.nut{text-decoration:none;color:inherit}
 .anh-nho{width:64px;height:64px;border-radius:8px;overflow:hidden;background:var(--vien);display:block;flex:none}
 .anh-nho img{width:100%;height:100%;object-fit:cover;display:block}
 .nut-anh{border:1px dashed var(--vien);background:none;border-radius:8px;width:64px;height:64px;font-size:20px;color:var(--phu)}
-#cho{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center}
+#cho{position:fixed;top:0;right:0;bottom:0;left:0;z-index:50;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center}
 #cho div{background:var(--the);padding:18px 22px;border-radius:14px;font-weight:600}
 
 /* Đăng nhập */
@@ -158,8 +159,8 @@ a.nut{text-decoration:none;color:inherit}
   #vung-in hr{border:0;border-top:1px dashed #000}
 }
 /* Quét mã vạch: camera toàn màn hình, khung ngắm ở giữa */
-#quet{position:fixed;inset:0;z-index:25;background:#000;color:#fff;display:flex;flex-direction:column}
-#quet video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#quet{position:fixed;top:0;right:0;bottom:0;left:0;z-index:25;background:#000;color:#fff;display:flex;flex-direction:column}
+#quet video{position:absolute;top:0;right:0;bottom:0;left:0;width:100%;height:100%;object-fit:cover}
 #quet .quet-khung{position:absolute;left:8%;right:8%;top:32%;height:22%;border:3px solid rgba(255,255,255,.9);border-radius:14px;box-shadow:0 0 0 100vmax rgba(0,0,0,.35)}
 #quet .quet-khung::after{content:'';position:absolute;left:6%;right:6%;top:50%;height:2px;background:#ef4444;opacity:.8}
 #quet .quet-tren,#quet .quet-duoi{position:relative;z-index:1;padding:12px 14px;background:linear-gradient(rgba(0,0,0,.7),rgba(0,0,0,0))}
@@ -959,7 +960,7 @@ function veMotHang(h) {
   return `<div class="hh"><div class="dong"><div class="gian"><div class="hh-ten">${esc(h.ten)}</div>
       <div class="mo">${esc(h.dv)}${h.dm ? ' · ' + esc(h.dm) : ''}${h.ton != null ? ` · tồn ${so(h.ton)}` : ''}</div></div>
       ${laChu() ? `<button class="nut-sua" data-a="suaHang" data-id="${esc(h.id)}">✎</button>`
-        : coQuyen('doi_gia_ban') && h.gia.length ? `<button class="nut-sua" data-a="suaGiaNV" data-id="${esc(h.id)}">✎</button>` : ''}</div>
+        : coQuyen('doi_gia_ban') ? `<button class="nut-sua" data-a="${h.gia.length ? 'suaGiaNV' : 'themGiaNV'}" data-id="${esc(h.id)}">✎</button>` : ''}</div>
     <div class="chips">${chips || '<span class="the-nhan vang">Chưa có giá</span>'}
       <button class="chip ${h.gia.length ? 'phu' : 'vang'}" data-a="themGiaTay" data-id="${esc(h.id)}">${h.gia.length ? '+ khác' : '+ Nhập giá'}</button></div></div>`;
 }
@@ -2349,6 +2350,8 @@ function veThem() {
     </div>` : coQuyen('bao_cao') ? `<div class="the ds">
       <div class="muc dong" data-a="baoCao"><span class="gian">📊 <b>Báo cáo doanh thu</b></span>›</div>
       <div class="muc dong" data-a="chotSo"><span class="gian">🧮 <b>Chốt sổ cuối ngày</b></span>›</div></div>` : ''}
+    ${!laChu() && coQuyen('doi_gia_ban') && monChuaGia().length ? `<div class="the ds">
+      <div class="muc dong" data-a="hangChuaGia"><span class="gian">🏷 <b>Điền giá nhanh</b><br><span class="mo">${monChuaGia().length} món chưa có giá</span></span>›</div></div>` : ''}
     <div class="the ds">
       <div class="muc dong" data-a="nccDs"><span class="gian">🚚 <b>Nhà cung cấp</b><br><span class="mo">SĐT, mặt hàng, toa hàng · 🤖 AI đọc toa → giá vốn</span></span>›</div>
       <div class="muc dong" data-a="vtDs"><span class="gian">⏳ <b>Việc còn treo với khách</b><br><span class="mo">Hàng trả chờ kiểm tra · nợ thưởng · khách chờ lấy lại</span></span>›</div>
@@ -2746,6 +2749,24 @@ HD.suaGiaNV = async el => {
   thongBao('Đã đổi ' + n + ' giá: ' + ds.map(x => x.quy_cach + ' ' + tien(x.gia_ban)).join(', '), 'tot');
   if (S.bangs.length && S.bangs[S.bangs.length - 1].hx) await taiLaiHangDangXem(); else if (S.tab === 'ban') veKetQua();
 };
+// PQ02: NV có quyền "Đổi giá" điền giá ĐẦU TIÊN cho món chưa có giá (hàm them_gia_dau – máy chủ chặn nếu món đã có giá)
+HD.themGiaNV = async el => {
+  const id = el.dataset.id, h = timHang(id); if (!h) return thongBao('Không tìm thấy món – bấm Tải lại dữ liệu', 'loi');
+  if (h.gia.length) return HD.suaGiaNV(el);
+  const v = await hoi('Nhập giá: ' + h.ten, [
+    { k: 'qc', nhan: 'Quy cách (hộp, lốc, thùng…)', gt: h.dv, list: ['thùng', 'lốc', 'hộp', 'gói', 'chai', 'lon', 'kg', 'bịch', 'chục', h.dv] },
+    { k: 'qd', nhan: `1 quy cách này = bao nhiêu ${h.dv}?`, kieu: 'so', gt: '1' },
+    { k: 'gia', nhan: 'Giá bán 1 quy cách', kieu: 'tien' },
+  ], 'Lưu giá', '<span class="mo">Món chưa có giá: nhập 1 giá chính. Thêm quy cách khác sau này: nhờ chủ.</span>');
+  if (!v) return;
+  if (!v.qc) return thongBao('Chưa nhập quy cách', 'loi');
+  if (!(v.gia > 0)) return thongBao('Chưa nhập giá', 'loi');
+  if (v.gia < 1000 && !await xacNhan(h.ten + ': giá ' + tien(v.gia) + '? Muốn ' + tien(v.gia * 1000) + ' thì gõ ' + v.gia + 'k.', 'Đúng ' + tien(v.gia))) return;
+  await cho('Đang lưu giá…', () => rpc('them_gia_dau', { p: [{ hang_hoa_id: id, quy_cach: v.qc, so_luong_quy_doi: v.qd || 1, gia_ban: v.gia }] }));
+  await taiHang(true);
+  thongBao('✓ ' + h.ten + ' – ' + v.qc + ' ' + tien(v.gia), 'tot');
+  if (S.bangs.length && S.bangs[S.bangs.length - 1].hx) await taiLaiHangDangXem(); else if (S.tab === 'ban') veKetQua(); else if (S.tab === 'hang') veDsHang();
+};
 HD.hangMoi = () => formHang(null, S.tab === 'ban' ? S.tim.trim() : S.tab === 'hang' ? S.hTim.trim() : '');
 // ── ĐIỀN GIÁ NHANH: gõ giá → Enter → lưu, tự nhảy sang món kế. Món không bán nữa → "Ngừng". ──
 HD.hangChuaGia = () => { S.dg = { tim: '', dm: '', so: 30 }; moBang('Điền giá nhanh', veDienGia); };
@@ -2756,7 +2777,7 @@ function veDienGia() {
   const dm = [...new Set(tat.map(h => h.dm).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
   return `<div class="the"><b>${tat.length}</b> món chưa có giá
       <p class="mo" style="margin:4px 0 0">Gõ giá rồi bấm <b>Enter</b> (nút "Đi" trên bàn phím) là lưu, tự sang món kế. Giá gõ như bên bán: 145 = 145.000đ.</p>
-      <button class="nut chinh" style="width:100%;margin-top:8px" data-a="aiSoGia">📷 Chụp sổ giá / bảng giá cho AI đọc</button></div>
+      ${laChu() ? '<button class="nut chinh" style="width:100%;margin-top:8px" data-a="aiSoGia">📷 Chụp sổ giá / bảng giá cho AI đọc</button>' : ''}</div>
     <input class="o" data-i="dgTim" placeholder="Lọc theo tên…" value="${esc(g.tim)}" autocomplete="off">
     <select class="o" style="margin-top:6px" data-d="dgDm"><option value="">Tất cả danh mục</option>${dm.map(d => `<option ${d === g.dm ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select>
     <div id="ds-dien-gia">${veDsDienGia(ds)}</div>`;
@@ -2764,7 +2785,7 @@ function veDienGia() {
 function veDsDienGia(ds) {
   const so = S.dg.so;
   return ds.slice(0, so).map(h => `<div class="the" data-dg="${esc(h.id)}" style="padding:10px 12px">
-      <div class="dong"><b class="gian">${esc(h.ten)}</b><button class="nut-sua" style="font-size:13px;color:var(--do)" data-a="dgNgung" data-id="${esc(h.id)}">Ngừng bán</button></div>
+      <div class="dong"><b class="gian">${esc(h.ten)}</b>${laChu() ? `<button class="nut-sua" style="font-size:13px;color:var(--do)" data-a="dgNgung" data-id="${esc(h.id)}">Ngừng bán</button>` : ''}</div>
       <span class="mo">${esc(h.dv)}${h.dm ? ' · ' + esc(h.dm) : ''}</span>
       <div class="dong" style="gap:6px;margin-top:6px">
         <input class="o" style="flex:3" id="dgqc_${esc(h.id)}" value="${esc(h.dv)}" placeholder="quy cách" list="dl-qc">
@@ -2786,7 +2807,8 @@ HD.dgLuu = async el => {
   if (!qc) return thongBao('Chưa nhập quy cách', 'loi');
   if (!(gia > 0)) return thongBao('Chưa nhập giá', 'loi');
   if (gia < 1000 && !await xacNhan(h.ten + ': giá ' + tien(gia) + '? Muốn ' + tien(gia * 1000) + ' thì gõ ' + gia + 'k.', 'Đúng ' + tien(gia))) return;
-  await ghi('bang_gia', { hang_hoa_id: id, quy_cach: qc, so_luong_quy_doi: qd, gia_ban: gia });
+  if (laChu()) await ghi('bang_gia', { hang_hoa_id: id, quy_cach: qc, so_luong_quy_doi: qd, gia_ban: gia });
+  else await rpc('them_gia_dau', { p: [{ hang_hoa_id: id, quy_cach: qc, so_luong_quy_doi: qd, gia_ban: gia }] });
   h.gia.push({ qc, qd, g: gia }); luu('bh_hang', { hang: S.hang, taiLuc: S.hangLuc });
   thongBao('✓ ' + h.ten + ' – ' + qc + ' ' + tien(gia), 'tot');
   // Bỏ món vừa điền khỏi danh sách, đưa con trỏ sang ô giá món kế
@@ -3033,7 +3055,8 @@ async function veDsHang() {
         <div class="phu-hh">${phu}${h.ton != null ? ` · <span class="${h.min != null || h.ton <= 0 ? 'no' : ''}">tồn ${so(h.ton)}${h.min != null ? '/' + so(h.min) : ''}</span>` : ''}</div></div>
       <div class="gia-hh">${h.ngung ? '<span class="the-nhan">ngừng bán</span>' : h.gia.length ? giaGon(h) : '<span class="the-nhan vang">chưa có giá</span>'}</div></div>`;
   };
-  o.innerHTML = `<p class="mo" style="margin:0 0 6px">${ds.length} mặt hàng${S.hDm ? ' · ' + esc(hoaDau(S.hDm)) : ''}</p>
+  o.innerHTML = (S.hLoc === 'chuagia' && ds.length && coQuyen('doi_gia_ban') ? '<button class="nut chinh" style="width:100%;margin-bottom:8px" data-a="hangChuaGia">🏷 Điền giá nhanh – gõ giá, Enter là lưu</button>' : '')
+    + `<p class="mo" style="margin:0 0 6px">${ds.length} mặt hàng${S.hDm ? ' · ' + esc(hoaDau(S.hDm)) : ''}</p>
     <div class="the ds ds-hang" style="padding-top:4px">${ds.slice(0, S.hSo).map(dong).join('') || '<div class="trong">Không có mặt hàng nào</div>'}</div>
     ${ds.length > S.hSo ? `<button class="nut" id="them-hang" style="width:100%" data-a="themDongHang">Xem thêm (${ds.length - S.hSo} món)</button>` : ''}
     ${S.hCheDo ? '<div style="height:120px"></div>' : ''}`;
@@ -3151,7 +3174,8 @@ function veChiTietHang(h) {
     <div class="hang-nut">
       ${h.dang_ban ? `<button class="nut chinh" data-a="banHangNay">🛒 Thêm vào đơn</button>` : ''}
       ${chu ? `<button class="nut" data-a="suaHangDangXem">✎ Sửa tên / giá</button>`
-        : coQuyen('doi_gia_ban') && h.gia.length ? `<button class="nut" data-a="suaGiaNV" data-id="${esc(h.id)}">✎ Sửa giá</button>` : ''}
+        : coQuyen('doi_gia_ban') ? (h.gia.length ? `<button class="nut" data-a="suaGiaNV" data-id="${esc(h.id)}">✎ Sửa giá</button>`
+          : h.dang_ban ? `<button class="nut" data-a="themGiaNV" data-id="${esc(h.id)}">＋ Nhập giá</button>` : '') : ''}
       ${chu ? `<button class="nut ${h.dang_ban ? 'do' : ''}" data-a="batTatBan">${h.dang_ban ? 'Ngừng bán' : 'Bán lại'}</button>` : ''}
     </div>`;
 }
