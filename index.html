@@ -218,7 +218,7 @@ setTimeout(function () {
 
 // ── 1. CẤU HÌNH ──────────────────────────────────────────────────────
 // Số bản hiện ở cuối tab Thêm. MỖI LẦN ĐƯA BẢN MỚI LÊN PHẢI ĐỔI SỐ NÀY (để biết điện thoại đã nhận bản mới chưa).
-const BAN = '3.8';
+const BAN = '3.9';
 const CFG = {
   url: 'https://mrfwdmpdkhnhfblldzba.supabase.co',
   key: 'sb_publishable_92KnloG8NcjLUmpr92s6xw_7yPlsYJ3',  // khoá CÔNG KHAI – để ở đây là an toàn
@@ -510,6 +510,7 @@ const QUYEN = [
   ['ghi_no', 'Bán ghi nợ'], ['vuot_han_muc', 'Vượt hạn mức nợ'], ['thu_no', 'Thu tiền nợ khách'], ['xem_no', 'Xem tổng nợ của khách'],
   ['huy_don', 'Huỷ đơn của mình (30 phút)'], ['tra_hang', 'Nhập trả hàng / đổi thưởng nắp'], ['sua_khach', 'Thêm / sửa khách'],
   ['nhap_toa', 'Nhập toa NCC, kiểm kho'], ['tra_ncc', 'Trả tiền NCC'], ['bao_cao', 'Xem báo cáo, chốt sổ'],
+  ['them_hang', 'Thêm mặt hàng mới (giá chờ chủ duyệt)'], ['them_ncc', 'Thêm / sửa nhà cung cấp (không gồm số tài khoản)'],
 ];
 const MAU_QUYEN = {
   co_ban: { ghi_no: true, thu_no: true, xem_no: true, huy_don: true, tra_hang: true, sua_khach: true, nhap_toa: true },
@@ -973,7 +974,7 @@ function veKetQua() {
   // Chưa tải lần nào → đang tải. Đã tải mà 0 món (cửa hàng mới / vừa dọn dữ liệu) → mời thêm món đầu tiên
   if (!S.hangLuc) { o.innerHTML = '<div class="trong">Đang tải danh mục hàng…</div>'; return; }
   if (!S.hang.length && !S.tim.trim()) { o.innerHTML = `<div class="trong">Chưa có mặt hàng nào.${laChu() ? '<br>Gõ tên hàng vào ô tìm rồi bấm "＋ Thêm mặt hàng mới", hoặc:' : '<br>Nhờ chủ thêm hàng.'}</div>
-    ${laChu() ? '<button class="nut chinh" style="width:100%" data-a="hangMoi">＋ Thêm mặt hàng đầu tiên</button>' : ''}`; return; }
+    ${coQuyen('them_hang') ? '<button class="nut chinh" style="width:100%" data-a="hangMoi">＋ Thêm mặt hàng đầu tiên</button>' : ''}`; return; }
   if (!S.tim.trim()) {
     // Chưa gõ gì: hiện các món đang có trong giỏ + món bán gần đây
     const gan = (doc('bh_gan') || []).map(timHang).filter(Boolean);
@@ -983,7 +984,7 @@ function veKetQua() {
   }
   const kq = loc(S.tim);
   o.innerHTML = kq.map(veMotHang).join('') || `<div class="trong">Không thấy "${esc(S.tim)}"</div>`;
-  if (laChu()) o.innerHTML += `<button class="nut" style="width:100%" data-a="hangMoi">＋ Thêm mặt hàng mới "${esc(S.tim)}"</button>`;
+  if (coQuyen('them_hang')) o.innerHTML += `<button class="nut" style="width:100%" data-a="hangMoi">＋ Thêm mặt hàng mới "${esc(S.tim)}"</button>`;
 }
 function ghiGanDay(id) { const g = (doc('bh_gan') || []).filter(x => x !== id); g.unshift(id); luu('bh_gan', g.slice(0, 15)); }
 
@@ -2354,6 +2355,9 @@ function veThem() {
     </div>` : coQuyen('bao_cao') ? `<div class="the ds">
       <div class="muc dong" data-a="baoCao"><span class="gian">📊 <b>Báo cáo doanh thu</b></span>›</div>
       <div class="muc dong" data-a="chotSo"><span class="gian">🧮 <b>Chốt sổ cuối ngày</b></span>›</div></div>` : ''}
+    ${!laChu() && (coQuyen('them_hang') || coQuyen('them_ncc')) ? `<div class="the ds">
+      ${coQuyen('them_hang') ? '<div class="muc dong" data-a="hangMoi"><span class="gian">📦 <b>Thêm mặt hàng mới</b><br><span class="mo">Giá nhập sẽ chờ chủ duyệt (vẫn bán được ngay)</span></span>›</div>' : ''}
+      ${coQuyen('them_ncc') ? '<div class="muc dong" data-a="nccDs"><span class="gian">🚚 <b>Thêm nhà cung cấp</b><br><span class="mo">Mở danh sách NCC → bấm ＋</span></span>›</div>' : ''}</div>` : ''}
     ${!laChu() && coQuyen('doi_gia_ban') && monChuaGia().length ? `<div class="the ds">
       <div class="muc dong" data-a="hangChuaGia"><span class="gian">🏷 <b>Điền giá nhanh</b><br><span class="mo">${monChuaGia().length} món chưa có giá</span></span>›</div></div>` : ''}
     <div class="the ds">
@@ -2917,6 +2921,7 @@ HD.sgLuu = el => chay(el, 'Đang lưu…', async () => {
 });
 
 async function formHang(id, tenGoiY) {
+  if (!laChu() && id) return thongBao('Sửa mặt hàng: nhờ chủ (bạn chỉ thêm được món mới)', 'loi');
   let h = { ten: tenGoiY || '', don_vi: '', gia_von: 0, dang_ban: true, bang_gia: [] }, dmTen = '';
   const [dms, r] = await Promise.all([api('danh_muc?select=ten&order=thu_tu,ten'),
     id ? api('hang_hoa?select=*,danh_muc(ten),bang_gia(quy_cach,so_luong_quy_doi,gia_ban,dang_ap_dung)&id=eq.' + id) : Promise.resolve(null)]);
@@ -2939,13 +2944,15 @@ async function formHang(id, tenGoiY) {
       <div id="xem-gia" class="goi-y" style="line-height:1.5;margin-bottom:6px">${xemGia(tam.dong, h.don_vi).html}</div>
       <p class="mo" style="margin:0">Cột giữa: 1 quy cách = bao nhiêu đơn vị nhỏ nhất (thùng 48 hộp → 48). Giá gõ 365 = 365.000đ.</p>
       <button type="button" class="nut nho" data-a="themDongGia">＋ Thêm quy cách</button>
-      <label class="nhan">Giá vốn 1 ${esc(h.don_vi || 'đơn vị nhỏ nhất')} (để tính lãi, không bắt buộc)</label>
+      ${laChu() ? `<label class="nhan">Giá vốn 1 ${esc(h.don_vi || 'đơn vị nhỏ nhất')} (để tính lãi, không bắt buộc)</label>
       <input class="o" name="gia_von" value="${h.gia_von ? so(h.gia_von) : ''}" inputmode="decimal">
-      <div style="margin-top:12px"><label class="dong" style="display:inline-flex"><input type="checkbox" name="dang_ban" ${h.dang_ban ? 'checked' : ''} style="width:20px;height:20px"> Đang bán</label></div>
+      <div style="margin-top:12px"><label class="dong" style="display:inline-flex"><input type="checkbox" name="dang_ban" ${h.dang_ban ? 'checked' : ''} style="width:20px;height:20px"> Đang bán</label></div>`
+      : '<p class="goi-y" style="margin-top:10px">⏳ Giá bạn nhập dùng bán được ngay, nhưng sẽ hiện "chờ duyệt" cho chủ xem lại.</p>'}
       <div class="hang-nut"><button type="button" class="nut" data-a="dongBang">Huỷ</button><button class="nut chinh" type="submit">Lưu hàng</button></div></form>`;
   // Giữ chữ đã gõ khi thêm/xoá dòng giá
   const docForm = () => { const f = $('#form-hang'); if (!f) return;
-    h.ten = f.ten.value; h.don_vi = f.don_vi.value; dmTen = f.danh_muc.value; h.gia_von = docTien(f.gia_von.value); h.dang_ban = f.dang_ban.checked;
+    h.ten = f.ten.value; h.don_vi = f.don_vi.value; dmTen = f.danh_muc.value;
+    if (f.gia_von) { h.gia_von = docTien(f.gia_von.value); h.dang_ban = f.dang_ban.checked; }
     tam.dong = tam.dong.map((g, i) => ({ qc: f['qc' + i].value, qd: f['qd' + i].value, gia: f['gia' + i].value })); };
   HD.themDongGia = () => { docForm(); tam.dong.push({ qc: '', qd: '', gia: '' }); veBang(); ganNop(); };
   HD.xoaDongGia = el => { docForm(); tam.dong.splice(el.dataset.i, 1); veBang(); ganNop(); };
@@ -2963,8 +2970,9 @@ async function formHang(id, tenGoiY) {
       h.dang_ban = true; veBang(); return ganNop(); }
     if (xg.canhBao.length || (id && dangBanLucMo && !h.dang_ban)) ganNop();
     const nut = $('#form-hang [type=submit]') || ev.submitter;
-    const kq = await chay(nut, 'Đang lưu…', () => rpc('luu_hang_hoa', { p: { id: id || null, ten: h.ten.trim(), don_vi: h.don_vi.trim() || null,
-      danh_muc: dmTen.trim() || null, gia_von: h.gia_von, dang_ban: h.dang_ban, bang_gia: bg } }))
+    const kq = await chay(nut, 'Đang lưu…', () => laChu() ? rpc('luu_hang_hoa', { p: { id: id || null, ten: h.ten.trim(), don_vi: h.don_vi.trim() || null,
+      danh_muc: dmTen.trim() || null, gia_von: h.gia_von, dang_ban: h.dang_ban, bang_gia: bg } })
+      : rpc('nv_them_hang', { p: { ten: h.ten.trim(), don_vi: h.don_vi.trim() || null, danh_muc: dmTen.trim() || null, bang_gia: bg } }))
       .catch(e => { thongBao(e.message, 'loi'); return null; });
     if (!kq) return;
     dongBang(); thongBao('Đã lưu ' + h.ten, 'tot');
@@ -3008,6 +3016,18 @@ const LOC_HANG = {
   coton:  ['⭐ Chủ lực', h => h.ton != null],   // món chủ lực = món theo dõi tồn kho
   saphet: ['Sắp hết',     null],   // lấy từ máy chủ (cần tồn tối thiểu)
   ngung:  ['Ngừng bán',   null],   // hàng ẩn, không có trong danh mục bán
+  choduyet: ['⏳ Giá NV nhập', h => !!(S.giaCD && S.giaCD.has(h.id))],   // PQ03: chỉ chủ thấy
+};
+// PQ03: các món có giá do nhân viên nhập / đổi, chờ chủ duyệt
+async function taiGiaChoDuyet() {
+  if (!laChu()) return;
+  const ds = await api('bang_gia?select=hang_hoa_id&cho_duyet=is.true&dang_ap_dung=is.true').catch(() => null);
+  if (ds) S.giaCD = new Set(ds.map(x => x.hang_hoa_id));
+}
+HD.duyetGia = async el => {
+  const id = el.dataset.id; await chay(el, 'Đang duyệt…', () => rpc('duyet_gia', { p_hang: id }));
+  if (S.giaCD) S.giaCD.delete(id); thongBao('Đã duyệt giá', 'tot');
+  if (S.bangs.length && S.bangs[S.bangs.length - 1].hx) await taiLaiHangDangXem(); if (S.tab === 'hang') veHang();
 };
 // Danh mục gõ thường ("mì chính") → hiện viết hoa chữ đầu cho đều mắt (không đổi dữ liệu)
 const hoaDau = s => s ? s.charAt(0).toLocaleUpperCase('vi') + s.slice(1) : s;
@@ -3021,8 +3041,8 @@ function veHang() {
     <div class="o-tim dong"><input class="o" id="o-tim-hang" type="search" data-i="timHangTab" placeholder="🔍 Tìm hàng…" value="${esc(S.hTim)}" autocomplete="off">
       ${S.hCheDo ? '' : '<button class="nut nut-vuong" data-a="quetTimHang" title="Quét mã vạch để tìm hàng">📷</button>'}
       ${laChu() ? `<button class="nut nut-vuong${S.hCheDo ? ' chinh' : ''}" data-a="hangCheDoChon">${S.hCheDo ? '✓ Xong' : '☑ Chọn'}</button>
-        ${S.hCheDo ? '' : '<button class="nut nut-vuong chinh" data-a="hangMoi" title="Thêm mặt hàng">＋</button>'}` : ''}</div>
-    <div class="loc">${Object.entries(LOC_HANG).filter(([k]) => k !== 'ngung' || laChu()).map(([k, [ten]]) => { const n = demLoc(k);
+        ${S.hCheDo ? '' : '<button class="nut nut-vuong chinh" data-a="hangMoi" title="Thêm mặt hàng">＋</button>'}` : coQuyen('them_hang') ? '<button class="nut nut-vuong chinh" data-a="hangMoi" title="Thêm mặt hàng">＋</button>' : ''}</div>
+    <div class="loc">${Object.entries(LOC_HANG).filter(([k]) => (k !== 'ngung' && k !== 'choduyet') || laChu()).filter(([k]) => k !== 'choduyet' || (S.giaCD && S.giaCD.size)).map(([k, [ten]]) => { const n = demLoc(k);
       return `<button data-a="locHang" data-k="${k}" class="${S.hLoc === k ? 'chon' : ''}">${ten}${n != null && k !== 'tat' ? `<span class="dem-loc">${n}</span>` : ''}</button>`; }).join('')}
       ${soChuLuc && !S.hCheDo && coQuyen('nhap_toa') ? `<button data-a="kkMo">📋 Kiểm kho</button>` : ''}</div>
     ${dms.length ? `<select class="o chon-dm" data-d="dmHangChon">
@@ -3143,7 +3163,7 @@ HD.themDongHang = () => { S.hSo += 100; veDsHang(); };
 HD.xemHang = el => moChiTietHang(el.dataset.id);
 
 async function layHang(id) {
-  const r = await api('hang_hoa?select=*,danh_muc(ten),ncc_hang(nha_cung_cap(id,ten,sdt,nguoi_lien_he,sdt_nv)),bang_gia(quy_cach,so_luong_quy_doi,gia_ban,dang_ap_dung,sua_luc),ma_vach(ma,quy_cach,nguoi,tao_luc)&id=eq.' + encodeURIComponent(id));
+  const r = await api('hang_hoa?select=*,danh_muc(ten),ncc_hang(nha_cung_cap(id,ten,sdt,nguoi_lien_he,sdt_nv)),bang_gia(quy_cach,so_luong_quy_doi,gia_ban,dang_ap_dung,sua_luc,cho_duyet,ghi_chu),ma_vach(ma,quy_cach,nguoi,tao_luc)&id=eq.' + encodeURIComponent(id));
   if (!r[0]) throw new Error('Không tìm thấy mặt hàng ' + id);
   const h = r[0];
   h.gia = h.bang_gia.filter(g => g.dang_ap_dung).sort((a, b) => a.so_luong_quy_doi - b.so_luong_quy_doi);
@@ -3168,6 +3188,9 @@ function veChiTietHang(h) {
         ${nutGoi(n.sdt_nv || n.sdt)}</div>`).join('') || '<p class="mo" style="margin:0">Chưa gán nhà cung cấp.</p>'}
       ${chu ? `<div class="hang-nut"><button class="nut nho" data-a="nccGanChoHang">＋ Gán nhà cung cấp</button></div>` : ''}</div>
     <div class="the"><h3>Bảng giá</h3>
+      ${chu && h.gia.some(g => g.cho_duyet) ? `<div class="goi-y" style="margin-bottom:8px">⏳ <b>Giá do nhân viên nhập – chờ anh duyệt</b><br>
+        <span class="mo">${esc([...new Set(h.gia.filter(g => g.cho_duyet).map(g => g.ghi_chu).filter(Boolean))].join(' · '))}</span>
+        <div class="hang-nut"><button class="nut chinh nho" data-a="duyetGia" data-id="${esc(h.id)}">✓ Giá đúng – duyệt</button></div></div>` : ''}
       ${h.gia.map(g => `<div class="tong-dong"><span>${esc(g.qc || g.quy_cach)}${g.so_luong_quy_doi > 1 ? ` <span class="mo">(${so(g.so_luong_quy_doi)} ${esc(h.don_vi)})</span>` : ''}</span>
         <span><b class="tien">${tien(g.gia_ban)}</b>${g.so_luong_quy_doi > 1 ? `<br><span class="mo tien">${tien(g.gia_ban / g.so_luong_quy_doi)}/${esc(h.don_vi)}</span>` : ''}</span></div>`).join('')
         || '<p class="mo">Chưa có giá.</p>'}
@@ -3259,7 +3282,7 @@ async function taiNcc() {
 HD.nccDs = async el => {
   await chay(el, '…', taiNcc); S.timNcc = '';
   moBang('Nhà cung cấp', () => `<div class="o-tim dong"><input class="o" data-i="timNcc" placeholder="Tìm tên, SĐT, nhân viên, mặt hàng…" value="${esc(S.timNcc)}" autocomplete="off">
-      ${laChu() ? '<button class="nut chinh" data-a="nccThem">＋</button>' : ''}</div><div id="ds-ncc">${veDsNcc()}</div>`);
+      ${coQuyen('them_ncc') ? '<button class="nut chinh" data-a="nccThem">＋</button>' : ''}</div><div id="ds-ncc">${veDsNcc()}</div>`);
 };
 function veDsNcc() {
   const q = boDau(S.timNcc || ''), qs = chiSo(S.timNcc);
@@ -3323,7 +3346,7 @@ function veChiTietNcc(n) {
       ${n.lich_giao ? `<p class="mo" style="margin:8px 0 0">🚚 Lịch giao: ${esc(n.lich_giao)}</p>` : ''}
       ${n.ghi_chu ? `<p class="mo" style="margin:4px 0 0">📝 ${esc(n.ghi_chu)}</p>` : ''}
       <div class="hang-nut">${n.hang.length ? '<button class="nut" data-a="nccCopyDat">📋 Copy tin đặt hàng</button>' : ''}
-        ${chu ? '<button class="nut" data-a="nccSua">✎ Sửa</button>' : ''}</div></div>
+        ${coQuyen('them_ncc') ? '<button class="nut" data-a="nccSua">✎ Sửa</button>' : ''}</div></div>
     ${veToaNcc(n)}
     <h3>Mặt hàng NCC này bỏ (${n.hang.length})${het.length ? ` · <span class="no">${het.length} sắp hết</span>` : ''}</h3>
     ${chu ? '<button class="nut chinh" style="width:100%;margin-bottom:8px" data-a="nccThemHang">＋ Thêm mặt hàng</button>' : ''}
@@ -3801,6 +3824,7 @@ HD.hangTheoDoiTon = async el => {
 // Thêm / sửa nhà cung cấp (chỉ chủ)
 async function formNcc(n) {
   n = n || { dang_hop_tac: true };
+  const chu = laChu(), CHI_CHU = ['bin', 'so_tk', 'ten_tk', 'anh_qr', 'dang_hop_tac'];   // NV không ghi: chống đổi số TK
   const v = await hoi(n.id ? 'Sửa ' + n.ten : 'Thêm nhà cung cấp', [
     { k: 'ten', nhan: 'Tên nhà cung cấp', gt: n.ten, goiY: 'VD: NPP Vinamilk Hoà Khánh' },
     { k: 'dia_chi', nhan: 'Địa chỉ', gt: n.dia_chi },
@@ -3817,12 +3841,18 @@ async function formNcc(n) {
     { k: 'dieu_kien_no', nhan: 'Điều kiện nợ', gt: n.dieu_kien_no, goiY: 'VD: nợ gối 1 toa, trả khi giao toa sau' },
     { k: 'ghi_chu', nhan: 'Ghi chú', gt: n.ghi_chu, goiY: 'VD: đặt trước 10h' },
     { k: 'dang_hop_tac', nhan: 'Đang lấy hàng của NCC này', kieu: 'hop', gt: n.dang_hop_tac },
-  ], n.id ? 'Lưu' : 'Thêm');
+  ].filter(o => chu || !CHI_CHU.includes(o.k)), n.id ? 'Lưu' : 'Thêm', chu ? '' : '<span class="mo">Ngân hàng, số tài khoản, QR của NCC: chỉ chủ ghi.</span>');
   if (!v) return null;
   if (!v.ten) { thongBao('Chưa nhập tên nhà cung cấp', 'loi'); return null; }
   const trung = (S.ncc || []).find(x => x.id !== n.id && boDau(x.ten) === boDau(v.ten));
   if (trung && !await xacNhan('Đã có nhà cung cấp "' + trung.ten + '". Vẫn lưu?', 'Vẫn lưu')) return null;
   const dl = {}; ['ten', 'dia_chi', 'sdt', 'nguoi_lien_he', 'sdt_nv', 'zalo_nv', 'lich_giao', 'ghi_chu', 'dieu_kien_no'].forEach(k => dl[k] = v[k] || null);
+  if (!chu) {   // NV: hàm riêng trên máy chủ, không có phần ngân hàng
+    const hanNv = String((v._tho || {}).han_no_ngay || '').trim(); dl.han_no_ngay = hanNv === '' ? null : Math.max(0, Math.min(365, Math.round(v.han_no_ngay)));
+    if (n.id) dl.id = n.id;
+    const kq = await cho('Đang lưu…', () => rpc('nv_luu_ncc', { p: dl }));
+    thongBao('Đã lưu nhà cung cấp', 'tot'); await taiNcc(); return Object.assign({}, n, dl, { id: kq.id });
+  }
   dl.dang_hop_tac = v.dang_hop_tac;
   // Ngân hàng: có số TK thì phải chọn ngân hàng (để tạo QR)
   if (chiSo(v.so_tk) && !v.bin) { thongBao('Có số tài khoản thì chọn luôn ngân hàng', 'loi'); return null; }
@@ -3838,7 +3868,7 @@ async function formNcc(n) {
 HD.nccThem = async () => {
   const r = await formNcc(); if (!r) return;
   veBang(); await HD.nccMo({ dataset: { id: r.id } });
-  if (await xacNhan('Gán luôn các mặt hàng ' + r.ten + ' bỏ?', 'Gán mặt hàng')) HD.nccThemHang();
+  if (laChu() && await xacNhan('Gán luôn các mặt hàng ' + r.ten + ' bỏ?', 'Gán mặt hàng')) HD.nccThemHang();
 };
 HD.nccSua = async () => { if (await formNcc(nccDangMo())) await taiLaiNcc(); };
 // Gán mặt hàng: gõ tìm → bấm vào món để gán / bỏ (✓ = đã gán). Gán nhiều món liên tục không cần đóng.
@@ -3924,7 +3954,7 @@ async function vaoApp() {
   S.toi = nv[0] || null; luu('bh_toi', S.toi);
   if (!S.toi || !S.toi.hoat_dong) return veChoDuyet();
   await Promise.all([taiCauHinh(), taiKhach(), S.hang.length ? Promise.resolve() : taiHang(true)]);
-  veKhung(); kiemYeuCau(); kiemKhoa(true);
+  veKhung(); kiemYeuCau(); kiemKhoa(true); taiGiaChoDuyet().then(() => { if (S.tab === 'hang') veHang(); });
   if (Date.now() - S.hangLuc > 60e3) taiHang(true).catch(() => {});
   guiDonCho();
 }
