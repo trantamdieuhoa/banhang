@@ -218,7 +218,7 @@ setTimeout(function () {
 
 // ── 1. CẤU HÌNH ──────────────────────────────────────────────────────
 // Số bản hiện ở cuối tab Thêm. MỖI LẦN ĐƯA BẢN MỚI LÊN PHẢI ĐỔI SỐ NÀY (để biết điện thoại đã nhận bản mới chưa).
-const BAN = '3.9';
+const BAN = '3.10';
 const CFG = {
   url: 'https://mrfwdmpdkhnhfblldzba.supabase.co',
   key: 'sb_publishable_92KnloG8NcjLUmpr92s6xw_7yPlsYJ3',  // khoá CÔNG KHAI – để ở đây là an toàn
@@ -2349,6 +2349,7 @@ function veThem() {
       <div class="muc dong" data-a="hangMoi"><span class="gian">📦 <b>Thêm mặt hàng mới</b><br><span class="mo">Sửa giá: tìm hàng ở tab Bán → bấm ✎</span></span>›</div>
       <div class="muc dong" data-a="hangChuaGia"><span class="gian">🏷 <b>Điền giá nhanh</b><br><span class="mo">${S.hang.filter(h => !h.gia.length).length} món chưa có giá · có AI đọc sổ giá</span></span>›</div>
       <div class="muc dong" data-a="saoLuu"><span class="gian">💾 <b>Sao lưu dữ liệu</b><br><span class="mo">Tải Excel · tự sao lưu hằng tuần vào Drive</span></span>›</div>
+      <div class="muc dong" data-a="nhatKy"><span class="gian">📋 <b>Nhật ký thay đổi</b> ${S.nkMoi ? '<span class="the-nhan do">' + (S.nkMoi >= 100 ? '99+' : S.nkMoi) + ' việc mới của NV</span>' : ''}<br><span class="mo">Ai thêm / sửa / huỷ gì: hàng, giá, khách, NCC, đơn, tiền</span></span>›</div>
       <div class="muc dong" data-a="nhanVien"><span class="gian">👤 <b>Nhân viên</b><br><span class="mo">Tạo tài khoản, duyệt, khoá</span></span>›</div>
       <div class="muc dong" data-a="suaCuaHang"><span class="gian">🏪 <b>Cửa hàng & ngân hàng</b><br>
         <span class="mo">${esc(shop.ten || '')} · ${nh.so_tk ? esc(nh.ten_ngan_hang + ' ' + nh.so_tk) : '<span class="no">chưa có số tài khoản</span>'}</span></span>›</div>
@@ -2588,6 +2589,108 @@ async function veNhatKySaoLuu() {
   o.innerHTML = ds === null ? 'Chưa xem được (máy chủ chưa nâng cấp BM01)' : !ds.length ? 'Chưa có lần nào.'
     : ds.map(x => `<div style="padding:4px 0;border-bottom:1px solid var(--vien)">${esc(new Date(x.luc).toLocaleString('vi-VN'))} · ${esc(x.dia_chi || '?')}<br><span style="font-size:11px">${esc((x.trinh_duyet || '').slice(0, 80))}</span></div>`).join('');
 }
+// ── NV01. NHẬT KÝ THAY ĐỔI (chỉ chủ) ─────────────────────────────────
+// Máy chủ tự ghi (trigger) mọi thêm/sửa/xoá của nhân viên, chủ và "sửa trực tiếp máy chủ".
+// 1 thao tác = 1 giao dịch (cột tx) → gộp thành 1 thẻ; dòng "đáng chú ý nhất" (muc cao) làm tiêu đề.
+// Số đỏ ở mục Nhật ký = số việc của NHÂN VIÊN từ lần chủ mở xem trước (lưu mốc giờ trong máy: bh_nk_xem).
+const NK_LOAI = { hang: 'Hàng', gia: 'Giá', khach: 'Khách', ncc: 'NCC', don: 'Đơn', tien: 'Tiền', kho: 'Kho', he_thong: 'Hệ thống' };
+const NK_COT = { ten: 'Tên', don_vi: 'Đơn vị', danh_muc_id: 'Danh mục', ncc_id: 'NCC', ma_vach: 'Mã vạch', gia_von: 'Giá vốn', ton_toi_thieu: 'Tồn tối thiểu',
+  ghi_chu: 'Ghi chú', dang_ban: 'Đang bán', quy_cach: 'Quy cách', so_luong_quy_doi: 'Số đơn vị', gia_ban: 'Giá bán', dang_ap_dung: 'Đang dùng', cho_duyet: 'Chờ duyệt',
+  sdt: 'SĐT', sdt2: 'SĐT 2', sdt3: 'SĐT 3', dia_chi: 'Địa chỉ', nhom: 'Nhóm', han_muc_no: 'Hạn mức nợ', khoa: 'Khoá', ten_chu: 'Tên chủ', zalo: 'Zalo', zalo_link: 'Link Zalo',
+  nguoi_lien_he: 'Người liên hệ', lich_giao: 'Lịch giao', dang_hop_tac: 'Đang hợp tác', sdt_nv: 'SĐT NV sale', zalo_nv: 'Zalo NV sale', bin: 'Mã ngân hàng',
+  ten_ngan_hang: 'Ngân hàng', so_tk: 'Số tài khoản', ten_tk: 'Tên tài khoản', anh_qr: 'Ảnh QR', han_no_ngay: 'Hạn nợ (ngày)', dieu_kien_no: 'Điều kiện nợ',
+  khach_hang_id: 'Khách', hinh_thuc: 'Hình thức', chiet_khau: 'Chiết khấu', tong_cong: 'Tổng cộng', tong_tien_hang: 'Tiền hàng', trang_thai: 'Trạng thái', ly_do_huy: 'Lý do huỷ',
+  so_luong: 'Số lượng', don_gia: 'Đơn giá', giam_gia: 'Giảm giá', thanh_tien: 'Thành tiền', so_tien: 'Số tiền', ma_gd: 'Mã giao dịch', so_toa: 'Số toa', tong_tien: 'Tổng tiền',
+  don_gia_nhap: 'Giá nhập', ton_cu: 'Tồn cũ', ton_moi: 'Tồn mới', quyen: 'Quyền', hoat_dong: 'Đang làm', vai_tro: 'Vai trò', gia_tri: 'Giá trị', lech: 'Lệch', dem_thuc: 'Đếm thực' };
+const NK_TIEN = ['gia_von', 'gia_ban', 'han_muc_no', 'chiet_khau', 'tong_cong', 'tong_tien_hang', 'don_gia', 'giam_gia', 'thanh_tien', 'so_tien', 'tong_tien', 'don_gia_nhap', 'lech', 'dem_thuc'];
+const NK_BO = ['sua_luc', 'tao_luc', 'ton_kho', 'nhac_no_luc', 'da_giao', 'giao_luc', 'nguoi_giao', 'da_dung', 'don_hang_id', 'id'];
+const NK_TT = { hoan_tat: 'Hoàn tất', huy: 'Đã huỷ', cho: 'Chờ duyệt', dong_y: 'Đồng ý', tu_choi: 'Từ chối', da_tru: 'Đã trừ tiền', cho_kiem_tra: 'Chờ chủ kiểm tra', doi_lay_lai: 'Chờ lấy lại', da_nhan: 'Chủ đã nhận' };
+const NK_KY = { '1': 'Hôm nay', '7': '7 ngày', '30': '30 ngày', '365': '1 năm' };
+const nkMoc = () => doc('bh_nk_xem') || new Date(Date.now() - 7 * 864e5).toISOString();
+async function taiDemNhatKy() {
+  if (!laChu()) return;
+  try { const ds = await api('nhat_ky?select=id&vai=eq.nv&luc=gt.' + encodeURIComponent(nkMoc()) + '&limit=100'); S.nkMoi = ds.length; }
+  catch (e) { S.nkMoi = 0; }   // máy chủ chưa nâng cấp NV01
+  if (S.tab === 'them' && !S.bangs.length) veThem();
+}
+function nkGiaTri(k, v) {
+  if (v === null || v === undefined || v === '') return '<i class="mo">trống</i>';
+  if (typeof v === 'boolean') return v ? 'Có' : 'Không';
+  if (k === 'trang_thai' && NK_TT[v]) return NK_TT[v];
+  if (NK_TIEN.indexOf(k) >= 0 && !isNaN(v)) return tien(v);
+  if (k === 'quyen' && typeof v === 'object') return esc(Object.keys(v).filter(q => v[q]).map(q => (QUYEN.find(x => x[0] === q) || [q, q])[1]).join(', ') || 'không có quyền nào');
+  if (typeof v === 'object') return esc(JSON.stringify(v).slice(0, 120));
+  return esc(String(v).slice(0, 200));
+}
+function nkChiTiet(x, gon) {   // gon: thẻ chỉ có 1 thay đổi → không lặp lại tiêu đề
+  let h = gon ? '<div style="padding:6px 0;border-top:1px dashed var(--vien)">' : `<div style="padding:6px 0;border-top:1px dashed var(--vien)"><b class="${x.muc >= 3 ? 'no' : ''}">${esc(x.viec)}</b> · ${esc(x.tom_tat || '')}`;
+  const dau = h.length;
+  if (x.hanh_dong === 'UPDATE' && x.cu && x.moi) {
+    const ks = Object.keys(x.moi).filter(k => NK_BO.indexOf(k) < 0 && JSON.stringify(x.cu[k]) !== JSON.stringify(x.moi[k]));
+    if (ks.length) h += '<br>' + ks.map(k => `<span class="mo">${esc(NK_COT[k] || k)}:</span> ${nkGiaTri(k, x.cu[k])} → <b>${nkGiaTri(k, x.moi[k])}</b>`).join('<br>');
+  }
+  if (x.them && x.them.ly_do && x.them.ly_do.length) h += '<br><span class="mo">Vì:</span> ' + x.them.ly_do.map(esc).join(' · ');
+  if (x.them && x.them.sua_thanh) h += `<br><span class="no">→ đã lên lại thành đơn ${esc(x.them.sua_thanh)}</span>`;
+  if (gon && h.length === dau) h += '<span class="mo">Không có chi tiết thêm.</span>';
+  return h.replace(/^(<div[^>]*>)<br>/, '$1') + '</div>';
+}
+function nkNhom(ds) {   // gộp theo giao dịch
+  const m = new Map();
+  ds.forEach(x => { if (!m.has(x.tx)) m.set(x.tx, []); m.get(x.tx).push(x); });
+  return [...m.values()].map(ns => {
+    const dau = ns.slice().sort((a, b) => b.muc - a.muc || a.id - b.id)[0];
+    const cung = ns.filter(x => x.viec === dau.viec);
+    const tong = cung.reduce((s, x) => s + (Number(x.so_tien) || 0), 0);
+    return { tx: ns[0].tx, ns, dau, muc: dau.muc, luc: ns[0].luc, id: Math.max(...ns.map(x => x.id)),
+      tieuDe: dau.viec + (cung.length > 1 ? ' ×' + cung.length : ''),
+      tom: cung.length > 1 ? (tong && dau.loai === 'tien' ? 'Tổng ' + tien(tong) + ' · ' : '') + cung.slice(0, 3).map(x => x.tom_tat).join(' · ') + (cung.length > 3 ? ' · …' : '') : dau.tom_tat,
+      them: ns.length - cung.length };
+  }).sort((a, b) => b.id - a.id);
+}
+async function taiNhatKy() {
+  const L = S.nk.loc, tu = new Date(Date.now() - (L.ky === '1' ? (Date.now() + 7 * 3600e3) % 864e5 : Number(L.ky) * 864e5)).toISOString();
+  S.nk.ds = null; S.nk.loi = '';
+  try { S.nk.ds = await api('nhat_ky?select=*&luc=gte.' + encodeURIComponent(tu) + '&order=id.desc&limit=2000'); }
+  catch (e) { S.nk.ds = []; S.nk.loi = e.message; }
+}
+function veNhatKy() {
+  const L = S.nk.loc, ds = S.nk.ds;
+  const ten = ds ? [...new Set(ds.map(x => x.nguoi))].sort() : [];
+  const loc = !ds ? [] : ds.filter(x => (L.nguoi === 'tat_ca' || (L.nguoi === 'vai:nv' ? x.vai === 'nv' : L.nguoi === 'vai:chu' ? x.vai === 'chu' : L.nguoi === 'vai:may_chu' ? x.vai === 'may_chu' : x.nguoi === L.nguoi))
+                                       && (!L.loai || x.loai === L.loai));
+  let nhom = nkNhom(loc); if (L.canY) nhom = nhom.filter(g => g.muc >= 3);
+  const chon = (d, gt, ds2) => `<select class="o" data-d="${d}" style="flex:1;min-width:0">${ds2.map(([v, c]) => `<option value="${esc(v)}"${v === gt ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select>`;
+  return `<div class="the">
+      <div style="display:flex;gap:6px;margin-bottom:6px">
+        ${chon('nkNguoi', L.nguoi, [['tat_ca', 'Mọi người'], ['vai:nv', 'Chỉ nhân viên'], ['vai:chu', 'Chỉ chủ'], ['vai:may_chu', '🔧 Máy chủ']].concat(ten.filter(t => t.indexOf('🔧') !== 0).map(t => [t, t])))}
+        ${chon('nkKy', L.ky, Object.keys(NK_KY).map(k => [k, NK_KY[k]]))}</div>
+      <div style="display:flex;gap:6px;align-items:center">
+        ${chon('nkLoai', L.loai, [['', 'Mọi loại việc']].concat(Object.keys(NK_LOAI).map(k => [k, NK_LOAI[k]])))}
+        <label style="flex:1;font-size:14px"><input type="checkbox" data-d="nkCanY"${L.canY ? ' checked' : ''}> ⚠ Cần để ý</label></div></div>
+    ${!ds ? '<p class="mo" style="text-align:center">Đang tải…</p>'
+      : S.nk.loi ? `<p class="no">Chưa xem được nhật ký: ${esc(S.nk.loi)}</p>`
+      : !nhom.length ? '<p class="mo" style="text-align:center">Không có thay đổi nào.</p>'
+      : `<p class="mo">${nhom.length} việc${loc.length >= 2000 ? ' (chỉ hiện 2000 thay đổi gần nhất – chọn khoảng ngắn hơn)' : ''}</p><div class="the ds">` + nhom.map(g => {
+          const p = phanNgay(g.luc), mo = S.nk.mo === String(g.tx), dau = g.dau;
+          return `<div class="muc" data-a="nkMo" data-tx="${esc(g.tx)}" style="display:block">
+            <span class="mo">${p.gio}${ngayNgan(g.luc) !== ngayNgan(new Date().toISOString()) ? ' ' + p.d + '/' + p.m : ''} ·</span>
+            <b>${esc(dau.nguoi)}</b> <span class="the-nhan ${dau.vai === 'nv' ? 'vang' : dau.vai === 'chu' ? 'xanh' : 'do'}">${dau.vai === 'nv' ? 'NV' : dau.vai === 'chu' ? 'Chủ' : 'Máy chủ'}</span><br>
+            <b class="${g.muc >= 3 ? 'no' : ''}">${g.muc >= 3 && g.tieuDe.charAt(0) !== '⚠' ? '⚠ ' : ''}${esc(g.tieuDe)}</b> · ${esc(g.tom || '')}
+            ${g.them > 0 ? `<br><span class="mo">+ ${g.them} thay đổi kèm theo</span>` : ''}
+            ${mo ? (g.ns.length === 1 ? nkChiTiet(g.ns[0], true) : g.ns.slice().sort((a, b) => a.id - b.id).map(x => nkChiTiet(x)).join('')) : `<span class="mo"> ›</span>`}</div>`;
+        }).join('') + '</div>'}`;
+}
+HD.nhatKy = async () => {
+  S.nk = { loc: { nguoi: 'tat_ca', ky: '7', loai: '', canY: false }, ds: null, mo: null };
+  moBang('Nhật ký thay đổi', veNhatKy, () => { if (S.tab === 'them') veThem(); });
+  await taiNhatKy(); veBang();
+  luu('bh_nk_xem', new Date().toISOString()); S.nkMoi = 0;
+};
+HD.nkMo = el => { S.nk.mo = S.nk.mo === el.dataset.tx ? null : el.dataset.tx; veBang(); };
+DOI.nkNguoi = el => { S.nk.loc.nguoi = el.value; veBang(); };
+DOI.nkLoai = el => { S.nk.loc.loai = el.value; veBang(); };
+DOI.nkCanY = el => { S.nk.loc.canY = el.checked; veBang(); };
+DOI.nkKy = async el => { S.nk.loc.ky = el.value; S.nk.ds = null; veBang(); await taiNhatKy(); veBang(); };
 HD.layMaSaoLuu = async el => {
   if (!await xacNhan('Tạo mã mới thì mã cũ (nếu đã dán vào Apps Script) hết hiệu lực. Tiếp tục?', 'Tạo mã')) return;
   const ma = await chay(el, 'Đang tạo…', () => rpc('tao_ma_sao_luu'));
@@ -3954,7 +4057,7 @@ async function vaoApp() {
   S.toi = nv[0] || null; luu('bh_toi', S.toi);
   if (!S.toi || !S.toi.hoat_dong) return veChoDuyet();
   await Promise.all([taiCauHinh(), taiKhach(), S.hang.length ? Promise.resolve() : taiHang(true)]);
-  veKhung(); kiemYeuCau(); kiemKhoa(true); taiGiaChoDuyet().then(() => { if (S.tab === 'hang') veHang(); });
+  veKhung(); kiemYeuCau(); kiemKhoa(true); taiGiaChoDuyet().then(() => { if (S.tab === 'hang') veHang(); }); taiDemNhatKy();
   if (Date.now() - S.hangLuc > 60e3) taiHang(true).catch(() => {});
   guiDonCho();
 }
