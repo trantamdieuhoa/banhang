@@ -218,7 +218,7 @@ setTimeout(function () {
 
 // ── 1. CẤU HÌNH ──────────────────────────────────────────────────────
 // Số bản hiện ở cuối tab Thêm. MỖI LẦN ĐƯA BẢN MỚI LÊN PHẢI ĐỔI SỐ NÀY (để biết điện thoại đã nhận bản mới chưa).
-const BAN = '3.11';
+const BAN = '3.12';
 const CFG = {
   url: 'https://mrfwdmpdkhnhfblldzba.supabase.co',
   key: 'sb_publishable_92KnloG8NcjLUmpr92s6xw_7yPlsYJ3',  // khoá CÔNG KHAI – để ở đây là an toàn
@@ -2367,7 +2367,7 @@ function veThem() {
       <div class="muc dong" data-a="vtDs"><span class="gian">⏳ <b>Việc còn treo với khách</b><br><span class="mo">Hàng trả chờ kiểm tra · nợ thưởng · khách chờ lấy lại</span></span>›</div>
       ${coQuyen('nhap_toa') ? `<div class="muc dong" data-a="kkMo"><span class="gian">📋 <b>Kiểm kho</b><br><span class="mo">${S.hang.filter(h => h.ton != null).length} món chủ lực · đếm nhanh, báo lệch</span></span>›</div>` : ''}
       <div class="muc dong" data-a="taiLaiTatCa"><span class="gian">⟳ <b>Tải lại dữ liệu</b><br><span class="mo">${S.hang.length} hàng · ${S.khach.length} khách</span></span></div>
-      <div class="muc dong" data-a="doiMatKhau"><span class="gian">🔑 <b>Đổi mật khẩu</b></span>›</div>
+      <div class="muc dong" data-a="doiMatKhau"><span class="gian">🔑 <b>Đổi mật khẩu của tôi</b><br><span class="mo">Cần gõ mật khẩu hiện tại</span></span>›</div>
       ${pinBat() ? '<div class="muc dong" data-a="doiPin"><span class="gian">🔒 <b>Đổi mã PIN mở app</b><br><span class="mo">App tự khoá sau ' + PIN_PHUT + ' phút không dùng</span></span>›</div>' : ''}
       <div class="muc dong" data-a="dangXuat"><span class="gian no">⎋ Đăng xuất</span></div>
     </div>
@@ -2755,8 +2755,12 @@ function dangXuat() {
   S.gios = [gioMoi()]; S.gioSo = 0; S.gio = S.gios[0]; S.noDs = null; veDangNhap();
 }
 HD.doiMatKhau = async () => {
-  const v = await hoi('Đổi mật khẩu', [{ k: 'mk', nhan: 'Mật khẩu mới (từ 6 ký tự)', kieu: 'matkhau' }, { k: 'mk2', nhan: 'Gõ lại', kieu: 'matkhau' }], 'Đổi');
-  if (!v) return; if (v.mk !== v.mk2) return thongBao('Hai lần gõ không khớp', 'loi');
+  const v = await hoi('Đổi mật khẩu của tôi', [{ k: 'cu', nhan: 'Mật khẩu hiện tại', kieu: 'matkhau' }, { k: 'mk', nhan: 'Mật khẩu mới (từ 8 ký tự)', kieu: 'matkhau' }, { k: 'mk2', nhan: 'Gõ lại mật khẩu mới', kieu: 'matkhau' }], 'Đổi');
+  if (!v) return; if ((v.mk || '').length < 8) return thongBao('Mật khẩu mới phải từ 8 ký tự', 'loi');
+  if (v.mk !== v.mk2) return thongBao('Hai lần gõ không khớp', 'loi');
+  // BM02: phải đúng mật khẩu hiện tại (máy để quên mở khoá cũng không đổi mật khẩu được)
+  try { await goiAuth('token?grant_type=password', { email: phien.user.email, password: v.cu || '' }); }
+  catch (e) { return thongBao(/Sai email/.test(e.message) ? 'Mật khẩu hiện tại không đúng' : e.message, 'loi'); }
   const r = await fetch(CFG.url + '/auth/v1/user', { method: 'PUT', headers: { apikey: CFG.key, Authorization: 'Bearer ' + phien.access_token, 'Content-Type': 'application/json' }, body: JSON.stringify({ password: v.mk }) });
   const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(dichLoi(j.msg || j.message));
   thongBao('Đã đổi mật khẩu', 'tot');
@@ -2785,6 +2789,7 @@ function veNhanVien(ds) {
   return `<div class="the ds">${ds.map(n => `<div class="muc dong"><div class="gian" ${n.vai_tro !== 'chu' ? `data-a="quyenNV" data-id="${esc(n.id)}"` : ''}><b>${esc(n.ten)}</b> <span class="the-nhan ${n.vai_tro === 'chu' ? 'xanh' : ''}">${n.vai_tro === 'chu' ? 'Chủ' : 'Nhân viên'}</span>
       ${n.hoat_dong ? '' : '<span class="the-nhan do">chờ duyệt / khoá</span>'}<br><span class="mo">${esc(n.email || '')}</span>
       ${n.vai_tro !== 'chu' ? `<br><span class="mo">🔑 ${QUYEN.filter(q => (n.quyen || {})[q[0]]).length}/${QUYEN.length} quyền · bấm để chỉnh</span>` : '<br><span class="mo">🔑 toàn quyền</span>'}</div>
+      ${n.vai_tro !== 'chu' ? `<button class="nut nho" data-a="datLaiMK" data-id="${esc(n.id)}" data-ten="${esc(n.ten)}" title="Đặt lại mật khẩu">🔑</button>` : ''}
       ${n.id !== S.toi.id ? `<button class="nut nho ${n.hoat_dong ? 'do' : 'chinh'}" data-a="batTatNV" data-id="${esc(n.id)}" data-v="${n.hoat_dong ? 0 : 1}">${n.hoat_dong ? 'Khoá' : 'Duyệt'}</button>` : ''}</div>`).join('')}</div>
     <button class="nut chinh" style="width:100%" data-a="taoNV">＋ Tạo tài khoản nhân viên</button>
     <button class="nut" style="width:100%;margin-top:8px" data-a="xemYeuCau">🔔 Yêu cầu chờ duyệt</button>
@@ -2803,6 +2808,23 @@ HD.quyenNV = async el => {
   thongBao('Đã lưu quyền của ' + n.ten + ' (máy nhân viên bấm ⟳ để cập nhật)', 'tot'); await veLaiNV();
 };
 async function veLaiNV() { const ds = await api('nhan_vien?select=*&order=tao_luc'); S.bangs[S.bangs.length - 1].ve = () => veNhanVien(ds); veBang(); }
+// BM02: chủ đặt lại mật khẩu nhân viên → máy chủ mã hoá (bcrypt), xoá phiên, đăng xuất người đó trên mọi máy
+HD.datLaiMK = async el => {
+  const ten = el.dataset.ten;
+  const v = await hoi('Đặt lại mật khẩu – ' + ten, [{ k: 'mk', nhan: 'Mật khẩu mới (từ 8 ký tự)', kieu: 'matkhau' }, { k: 'mk2', nhan: 'Gõ lại mật khẩu mới', kieu: 'matkhau' }], 'Đặt lại',
+    ten + ' sẽ bị đăng xuất trên mọi máy và phải đăng nhập bằng mật khẩu mới. Báo mật khẩu trực tiếp hoặc gọi điện – không gửi qua Zalo.');
+  if (!v) return;
+  if ((v.mk || '').length < 8) return thongBao('Mật khẩu mới phải từ 8 ký tự', 'loi');
+  if (v.mk !== v.mk2) return thongBao('Hai lần gõ không khớp', 'loi');
+  await cho('Đang đặt lại…', () => rpc('dat_lai_mat_khau_nv', { p_id: el.dataset.id, p_mk: v.mk }));
+  thongBao('Đã đặt mật khẩu mới cho ' + ten + ' – đã đăng xuất trên mọi máy', 'tot');
+};
+// Vé đăng nhập bị chủ thu hồi (đặt lại mật khẩu) → đăng xuất máy này, báo rõ lý do
+async function kiemPhienCon() {
+  if (!phien || !S.toi || !S.toi.hoat_dong || laChu()) return;
+  let ok; try { ok = await rpc('la_nhan_vien'); } catch (e) { return; }   // mất mạng: để lần sau
+  if (ok === false) { dangXuat(); veDangNhap('Chủ vừa đặt lại mật khẩu (hoặc khoá) tài khoản này – đăng nhập lại bằng mật khẩu mới'); }
+}
 HD.batTatNV = async el => { await sua('nhan_vien', 'id=eq.' + el.dataset.id, { hoat_dong: el.dataset.v === '1' }); await veLaiNV(); };
 HD.taoNV = async () => {
   const v = await hoi('Tạo tài khoản nhân viên', [
@@ -4059,7 +4081,7 @@ async function vaoApp() {
   S.toi = nv[0] || null; luu('bh_toi', S.toi);
   if (!S.toi || !S.toi.hoat_dong) return veChoDuyet();
   await Promise.all([taiCauHinh(), taiKhach(), S.hang.length ? Promise.resolve() : taiHang(true)]);
-  veKhung(); kiemYeuCau(); kiemKhoa(true); taiGiaChoDuyet().then(() => { if (S.tab === 'hang') veHang(); }); taiDemNhatKy();
+  veKhung(); kiemYeuCau(); kiemKhoa(true); kiemPhienCon(); taiGiaChoDuyet().then(() => { if (S.tab === 'hang') veHang(); }); taiDemNhatKy();
   if (Date.now() - S.hangLuc > 60e3) taiHang(true).catch(() => {});
   guiDonCho();
 }
@@ -4076,7 +4098,7 @@ async function khoiDong() {
 // Quay lại app sau khi để lâu → tự tải lại hàng
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && S.toi && Date.now() - S.hangLuc > CFG.phutLamMoiHang * 60e3) taiHang(true).catch(() => {});
-  if (!document.hidden) guiDonCho();
+  if (!document.hidden) { guiDonCho(); kiemPhienCon(); }
 });
 // Lưu sẵn app trên máy (service worker) → mở được app kể cả khi mất mạng.
 // Chỉ khi app chạy ở web riêng (GitHub Pages), không chạy trong khung Apps Script.
