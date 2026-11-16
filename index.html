@@ -218,7 +218,7 @@ setTimeout(function () {
 
 // ── 1. CẤU HÌNH ──────────────────────────────────────────────────────
 // Số bản hiện ở cuối tab Thêm. MỖI LẦN ĐƯA BẢN MỚI LÊN PHẢI ĐỔI SỐ NÀY (để biết điện thoại đã nhận bản mới chưa).
-const BAN = '3.10';
+const BAN = '3.11';
 const CFG = {
   url: 'https://mrfwdmpdkhnhfblldzba.supabase.co',
   key: 'sb_publishable_92KnloG8NcjLUmpr92s6xw_7yPlsYJ3',  // khoá CÔNG KHAI – để ở đây là an toàn
@@ -510,7 +510,7 @@ const QUYEN = [
   ['ghi_no', 'Bán ghi nợ'], ['vuot_han_muc', 'Vượt hạn mức nợ'], ['thu_no', 'Thu tiền nợ khách'], ['xem_no', 'Xem tổng nợ của khách'],
   ['huy_don', 'Huỷ đơn của mình (30 phút)'], ['tra_hang', 'Nhập trả hàng / đổi thưởng nắp'], ['sua_khach', 'Thêm / sửa khách'],
   ['nhap_toa', 'Nhập toa NCC, kiểm kho'], ['tra_ncc', 'Trả tiền NCC'], ['bao_cao', 'Xem báo cáo, chốt sổ'],
-  ['them_hang', 'Thêm mặt hàng mới (giá chờ chủ duyệt)'], ['them_ncc', 'Thêm / sửa nhà cung cấp (không gồm số tài khoản)'],
+  ['them_hang', 'Thêm mặt hàng mới (giá chờ chủ duyệt)'], ['sua_hang', 'Sửa mặt hàng: tên, danh mục, quy cách (giá chờ chủ duyệt)'], ['them_ncc', 'Thêm / sửa nhà cung cấp (không gồm số tài khoản)'],
 ];
 const MAU_QUYEN = {
   co_ban: { ghi_no: true, thu_no: true, xem_no: true, huy_don: true, tra_hang: true, sua_khach: true, nhap_toa: true },
@@ -965,7 +965,8 @@ function veMotHang(h) {
   return `<div class="hh"><div class="dong"><div class="gian"><div class="hh-ten">${esc(h.ten)}</div>
       <div class="mo">${esc(h.dv)}${h.dm ? ' · ' + esc(h.dm) : ''}${h.ton != null ? ` · tồn ${so(h.ton)}` : ''}</div></div>
       ${laChu() ? `<button class="nut-sua" data-a="suaHang" data-id="${esc(h.id)}">✎</button>`
-        : coQuyen('doi_gia_ban') ? `<button class="nut-sua" data-a="${h.gia.length ? 'suaGiaNV' : 'themGiaNV'}" data-id="${esc(h.id)}">✎</button>` : ''}</div>
+        : coQuyen('doi_gia_ban') ? `<button class="nut-sua" data-a="${h.gia.length ? 'suaGiaNV' : 'themGiaNV'}" data-id="${esc(h.id)}">✎</button>`
+        : coQuyen('sua_hang') ? `<button class="nut-sua" data-a="suaHang" data-id="${esc(h.id)}">✎</button>` : ''}</div>
     <div class="chips">${chips || '<span class="the-nhan vang">Chưa có giá</span>'}
       <button class="chip ${h.gia.length ? 'phu' : 'vang'}" data-a="themGiaTay" data-id="${esc(h.id)}">${h.gia.length ? '+ khác' : '+ Nhập giá'}</button></div></div>`;
 }
@@ -3024,7 +3025,8 @@ HD.sgLuu = el => chay(el, 'Đang lưu…', async () => {
 });
 
 async function formHang(id, tenGoiY) {
-  if (!laChu() && id) return thongBao('Sửa mặt hàng: nhờ chủ (bạn chỉ thêm được món mới)', 'loi');
+  // PQ04: NV có quyền "Sửa mặt hàng" sửa được tên, đơn vị, danh mục, quy cách + giá (giá chờ chủ duyệt); giá vốn, đang bán: chỉ chủ
+  if (!laChu() && id && !coQuyen('sua_hang')) return thongBao('Sửa mặt hàng: nhờ chủ (bạn chưa có quyền "Sửa mặt hàng")', 'loi');
   let h = { ten: tenGoiY || '', don_vi: '', gia_von: 0, dang_ban: true, bang_gia: [] }, dmTen = '';
   const [dms, r] = await Promise.all([api('danh_muc?select=ten&order=thu_tu,ten'),
     id ? api('hang_hoa?select=*,danh_muc(ten),bang_gia(quy_cach,so_luong_quy_doi,gia_ban,dang_ap_dung)&id=eq.' + id) : Promise.resolve(null)]);
@@ -3050,7 +3052,7 @@ async function formHang(id, tenGoiY) {
       ${laChu() ? `<label class="nhan">Giá vốn 1 ${esc(h.don_vi || 'đơn vị nhỏ nhất')} (để tính lãi, không bắt buộc)</label>
       <input class="o" name="gia_von" value="${h.gia_von ? so(h.gia_von) : ''}" inputmode="decimal">
       <div style="margin-top:12px"><label class="dong" style="display:inline-flex"><input type="checkbox" name="dang_ban" ${h.dang_ban ? 'checked' : ''} style="width:20px;height:20px"> Đang bán</label></div>`
-      : '<p class="goi-y" style="margin-top:10px">⏳ Giá bạn nhập dùng bán được ngay, nhưng sẽ hiện "chờ duyệt" cho chủ xem lại.</p>'}
+      : `<p class="goi-y" style="margin-top:10px">⏳ Giá bạn ${id ? 'đổi' : 'nhập'} dùng bán được ngay, nhưng sẽ hiện "chờ duyệt" cho chủ xem lại.${id ? ' Giá vốn, ngừng bán: nhờ chủ.' : ''}</p>`}
       <div class="hang-nut"><button type="button" class="nut" data-a="dongBang">Huỷ</button><button class="nut chinh" type="submit">Lưu hàng</button></div></form>`;
   // Giữ chữ đã gõ khi thêm/xoá dòng giá
   const docForm = () => { const f = $('#form-hang'); if (!f) return;
@@ -3075,7 +3077,7 @@ async function formHang(id, tenGoiY) {
     const nut = $('#form-hang [type=submit]') || ev.submitter;
     const kq = await chay(nut, 'Đang lưu…', () => laChu() ? rpc('luu_hang_hoa', { p: { id: id || null, ten: h.ten.trim(), don_vi: h.don_vi.trim() || null,
       danh_muc: dmTen.trim() || null, gia_von: h.gia_von, dang_ban: h.dang_ban, bang_gia: bg } })
-      : rpc('nv_them_hang', { p: { ten: h.ten.trim(), don_vi: h.don_vi.trim() || null, danh_muc: dmTen.trim() || null, bang_gia: bg } }))
+      : rpc(id ? 'nv_sua_hang' : 'nv_them_hang', { p: { id: id || undefined, ten: h.ten.trim(), don_vi: h.don_vi.trim() || null, danh_muc: dmTen.trim() || null, bang_gia: bg } }))
       .catch(e => { thongBao(e.message, 'loi'); return null; });
     if (!kq) return;
     dongBang(); thongBao('Đã lưu ' + h.ten, 'tot');
@@ -3313,7 +3315,7 @@ function veChiTietHang(h) {
       ${h.dang_ban ? `<div class="hang-nut"><button class="nut" data-a="quetGanMa">📷 Quét gán mã</button><button class="nut" data-a="goGanMa">⌨ Gõ mã</button></div>` : ''}</div>
     <div class="hang-nut">
       ${h.dang_ban ? `<button class="nut chinh" data-a="banHangNay">🛒 Thêm vào đơn</button>` : ''}
-      ${chu ? `<button class="nut" data-a="suaHangDangXem">✎ Sửa tên / giá</button>`
+      ${chu || coQuyen('sua_hang') ? `<button class="nut" data-a="suaHangDangXem">✎ Sửa tên / giá</button>`
         : coQuyen('doi_gia_ban') ? (h.gia.length ? `<button class="nut" data-a="suaGiaNV" data-id="${esc(h.id)}">✎ Sửa giá</button>`
           : h.dang_ban ? `<button class="nut" data-a="themGiaNV" data-id="${esc(h.id)}">＋ Nhập giá</button>` : '') : ''}
       ${chu ? `<button class="nut ${h.dang_ban ? 'do' : ''}" data-a="batTatBan">${h.dang_ban ? 'Ngừng bán' : 'Bán lại'}</button>` : ''}
