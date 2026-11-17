@@ -36,6 +36,8 @@ button{cursor:pointer}
 #dau small{opacity:.85;font-size:12px}
 #dau .dong-bo{background:rgba(255,255,255,.18);border:0;color:#fff;border-radius:20px;padding:4px 10px;font-size:12px}
 #noi-dung{padding:12px 12px 140px;max-width:640px;margin:0 auto}
+#nhac-sao-luu{display:flex;align-items:center;background:#fff3cd;color:#664d03;padding:8px 14px;font-size:13px;border-bottom:1px solid #ffe08a}
+#nhac-sao-luu button{margin-left:8px;background:none;border:1px solid #d9b44a;color:#664d03;border-radius:16px;padding:4px 10px;font-size:12px;cursor:pointer}
 #dieu-huong{position:fixed;bottom:0;left:0;right:0;z-index:6;background:var(--the);border-top:1px solid var(--vien);display:flex;padding-bottom:env(safe-area-inset-bottom)}
 #dieu-huong button{flex:1;border:0;background:none;padding:7px 0 8px;font-size:12px;color:var(--phu);display:flex;flex-direction:column;align-items:center;gap:1px}
 #dieu-huong button i{font-style:normal;font-size:20px;line-height:1.1}
@@ -218,7 +220,7 @@ setTimeout(function () {
 
 // ── 1. CẤU HÌNH ──────────────────────────────────────────────────────
 // Số bản hiện ở cuối tab Thêm. MỖI LẦN ĐƯA BẢN MỚI LÊN PHẢI ĐỔI SỐ NÀY (để biết điện thoại đã nhận bản mới chưa).
-const BAN = '3.12';
+const BAN = '3.13';
 const CFG = {
   url: 'https://mrfwdmpdkhnhfblldzba.supabase.co',
   key: 'sb_publishable_92KnloG8NcjLUmpr92s6xw_7yPlsYJ3',  // khoá CÔNG KHAI – để ở đây là an toàn
@@ -597,6 +599,7 @@ function veKhung() {
       <button id="don-cho" class="dong-bo an" data-a="xemDonCho"></button>
       <button id="yc-duyet" class="dong-bo an" style="background:var(--do);color:#fff" data-a="xemYeuCau"></button>
       <button class="dong-bo" data-a="taiLaiTatCa" title="Tải lại dữ liệu">⟳</button></div>
+    <div id="nhac-sao-luu" class="an"></div>
     <div id="noi-dung"></div>
     <button id="thanh-gio" class="an" data-a="moGio"></button>
     <nav id="dieu-huong">
@@ -2692,6 +2695,24 @@ DOI.nkNguoi = el => { S.nk.loc.nguoi = el.value; veBang(); };
 DOI.nkLoai = el => { S.nk.loc.loai = el.value; veBang(); };
 DOI.nkCanY = el => { S.nk.loc.canY = el.checked; veBang(); };
 DOI.nkKy = async el => { S.nk.loc.ky = el.value; S.nk.ds = null; veBang(); await taiNhatKy(); veBang(); };
+// ── NM01. NHẮC SAO LƯU (chỉ chủ) ───────────────────────────────────
+// Quá NGAY_NHAC_SAO_LUU ngày chưa có bản sao lưu → dải vàng dưới đầu trang, bấm vào mở màn Sao lưu.
+// Mốc = mới nhất của: lần tải Excel thành công TRÊN MÁY NÀY (bh_sao_luu) và lần Apps Script dùng mã (bảng nhat_ky_sao_luu).
+// "Để mai" = ẩn 24 giờ (bh_sao_luu_hoan). Nhân viên không bao giờ thấy.
+const NGAY_NHAC_SAO_LUU = 7;
+async function kiemSaoLuu() {
+  const o = $('#nhac-sao-luu'); if (!o) return;
+  if (!laChu()) { o.classList.add('an'); return; }
+  let moc = doc('bh_sao_luu') || 0;
+  try { const ds = await api('nhat_ky_sao_luu?select=luc&order=luc.desc&limit=1'); if (ds && ds[0]) moc = Math.max(moc, new Date(ds[0].luc).getTime()); } catch (e) {}
+  const ngay = moc ? Math.floor((Date.now() - moc) / 864e5) : null;
+  const can = (ngay === null || ngay >= NGAY_NHAC_SAO_LUU) && Date.now() > (doc('bh_sao_luu_hoan') || 0);
+  o.classList.toggle('an', !can);
+  o.innerHTML = !can ? '' : `<span data-a="saoLuu" style="flex:1;cursor:pointer">💾 ${ngay === null ? 'Chưa sao lưu lần nào trên máy này' : 'Đã ' + ngay + ' ngày chưa sao lưu'} – <b>bấm để sao lưu</b></span>
+    <button data-a="hoanSaoLuu">Để mai</button>`;
+}
+HD.hoanSaoLuu = () => { luu('bh_sao_luu_hoan', Date.now() + 864e5); kiemSaoLuu(); };
+const daSaoLuu = () => { luu('bh_sao_luu', Date.now()); xoa('bh_sao_luu_hoan'); kiemSaoLuu(); };
 HD.layMaSaoLuu = async el => {
   if (!await xacNhan('Tạo mã mới thì mã cũ (nếu đã dán vào Apps Script) hết hiệu lực. Tiếp tục?', 'Tạo mã')) return;
   const ma = await chay(el, 'Đang tạo…', () => rpc('tao_ma_sao_luu'));
@@ -2721,11 +2742,11 @@ HD.taiExcel = el => chay(el, 'Đang tạo file…', async () => {
   const f = new File([blob], tenFile, { type: blob.type });
   // Điện thoại: mở bảng chia sẻ (lưu vào Files/Drive/Zalo). Máy tính: tải thẳng.
   if (navigator.canShare && navigator.canShare({ files: [f] })) {
-    try { await navigator.share({ files: [f], title: tenFile }); return; } catch (e) { if (e.name === 'AbortError') return; }
+    try { await navigator.share({ files: [f], title: tenFile }); daSaoLuu(); return; } catch (e) { if (e.name === 'AbortError') return; }
   }
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = tenFile;
   document.body.appendChild(a); a.click(); a.remove();
-  thongBao('Đã tạo ' + tenFile, 'tot');
+  daSaoLuu(); thongBao('Đã tạo ' + tenFile, 'tot');
 });
 // Cột của từng trang trong file sao lưu: [tên cột, trường dữ liệu, kiểu, độ rộng]
 const BANG_SAO_LUU = [
@@ -4081,7 +4102,7 @@ async function vaoApp() {
   S.toi = nv[0] || null; luu('bh_toi', S.toi);
   if (!S.toi || !S.toi.hoat_dong) return veChoDuyet();
   await Promise.all([taiCauHinh(), taiKhach(), S.hang.length ? Promise.resolve() : taiHang(true)]);
-  veKhung(); kiemYeuCau(); kiemKhoa(true); kiemPhienCon(); taiGiaChoDuyet().then(() => { if (S.tab === 'hang') veHang(); }); taiDemNhatKy();
+  veKhung(); kiemYeuCau(); kiemKhoa(true); kiemPhienCon(); kiemSaoLuu(); taiGiaChoDuyet().then(() => { if (S.tab === 'hang') veHang(); }); taiDemNhatKy();
   if (Date.now() - S.hangLuc > 60e3) taiHang(true).catch(() => {});
   guiDonCho();
 }
@@ -4098,7 +4119,7 @@ async function khoiDong() {
 // Quay lại app sau khi để lâu → tự tải lại hàng
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && S.toi && Date.now() - S.hangLuc > CFG.phutLamMoiHang * 60e3) taiHang(true).catch(() => {});
-  if (!document.hidden) { guiDonCho(); kiemPhienCon(); }
+  if (!document.hidden) { guiDonCho(); kiemPhienCon(); kiemSaoLuu(); }
 });
 // Lưu sẵn app trên máy (service worker) → mở được app kể cả khi mất mạng.
 // Chỉ khi app chạy ở web riêng (GitHub Pages), không chạy trong khung Apps Script.
